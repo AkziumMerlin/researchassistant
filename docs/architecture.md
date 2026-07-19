@@ -65,6 +65,20 @@ recipe and checkpoint while constructing a different data provider. Completed st
 named artifacts and final metrics to their dependants; no consumer reconstructs paths from model
 names.
 
+### Launcher and resource history
+
+Launcher policy is operational input and is deliberately separate from experiment configuration,
+so changing a utilization threshold does not change run identity. The local launcher executes one
+manifest per subprocess and assigns physical GPUs through `CUDA_VISIBLE_DEVICES`.
+
+Resource profiles join back to the immutable manifest by `run_id`. Historical placement uses the
+seed-independent `trial_id`: an explicit memory request wins, otherwise the maximum placement peak
+of the exact prior configuration is multiplied by a safety factor. That peak combines external
+process samples with framework-native high-water marks when available.
+
+On shared GPUs, per-process wall time and memory are kept separate from device-wide utilization,
+power, and total used memory. Foreign processes are observed and recorded but allowed by default.
+
 ## KNO migration map
 
 | Existing responsibility | ResearchAssistant destination |
@@ -84,7 +98,7 @@ separately installable adapter.
 
 ## Deliberate MVP limitations
 
-- execution is local and sequential;
+- execution is local; the subprocess launcher parallelizes independent runs on one host;
 - the reusable PyTorch stages are single-device and intentionally leave task semantics in recipes;
 - there is no SQLite index yet; the current report command scans self-describing run directories;
 - interrupted Python processes are recognized on the next invocation only through persisted
@@ -94,7 +108,7 @@ separately installable adapter.
 
 ## Next milestones
 
-1. Add subprocess workers and a local CUDA lease scheduler.
+1. Add worker adoption after scheduler restart and MIG-aware placement.
 2. Add an event index and seed-aware reports based on manifests, never path parsing.
 3. Migrate one KNO protocol as an external acceptance-test plugin.
 4. Add Slurm and tracking sinks behind plugin contracts.

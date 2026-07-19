@@ -89,7 +89,11 @@ The orchestration MVP was extended with:
 - interrupted-state persistence;
 - seed-aware final metric aggregation.
 
-## Remaining acceptance work
+The next two audit milestones were subsequently implemented: the optional recipe-based PyTorch
+stages and a local subprocess launcher with shared-GPU thresholds, physical device assignment,
+ResearchAssistant-only leases, per-attempt resource telemetry, and trial-aware memory history.
+
+## PyTorch acceptance work
 
 The next implementation milestone is an optional `research-assistant[torch]` integration. Its
 acceptance test should reproduce one small KNO-style protocol:
@@ -100,4 +104,5 @@ acceptance test should reproduce one small KNO-style protocol:
 4. evaluate the published best checkpoint on a downstream split;
 5. aggregate the downstream metric across three seeds.
 
-Only after this passes should the CUDA subprocess scheduler be moved into the core launcher API.
+This acceptance path now passes in CI. The remaining KNO migration work is an external RPB/KNO
+plugin that exercises the same contracts without adding benchmark names to core.

@@ -12,3 +12,7 @@ class RegistryError(ResearchAssistantError):
 
 class ExecutionError(ResearchAssistantError):
     """Raised when a run cannot be safely executed or resumed."""
+
+
+class LaunchError(ResearchAssistantError):
+    """Raised when a launcher cannot safely schedule or monitor a run."""

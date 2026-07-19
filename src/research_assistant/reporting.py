@@ -67,3 +67,75 @@ def collect_summary(
             }
         )
     return rows
+
+
+def collect_resource_summary(
+    root: str | Path,
+    *,
+    trial_ids: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Aggregate completed resource profiles by exact seed-independent trial identity."""
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    root = Path(root)
+    for resources_path in sorted(root.glob("*/*/resources.json")):
+        run_dir = resources_path.parent
+        try:
+            resources = json.loads(resources_path.read_text(encoding="utf-8"))
+            manifest = json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+            status = json.loads((run_dir / "status.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            continue
+        if status.get("state") != "completed":
+            continue
+        study_id = str(manifest.get("study_id", "unknown"))
+        trial_id = str(manifest.get("trial_id", "unknown"))
+        if trial_ids is not None and trial_id not in trial_ids:
+            continue
+        total = resources.get("total") or {}
+        try:
+            observation = {
+                "wall_seconds": float(total.get("wall_seconds", 0)),
+                "gpu_wall_seconds": float(total.get("gpu_wall_seconds", 0)),
+                "process_memory_peak_mb": float(total.get("process_memory_peak_mb", 0)),
+                "placement_memory_peak_mb": float(
+                    total.get("placement_memory_peak_mb", total.get("process_memory_peak_mb", 0))
+                ),
+                "device_active_seconds": float(total.get("device_active_seconds", 0)),
+                "device_energy_joules": float(total.get("device_energy_joules", 0)),
+                "attempts": int(total.get("attempts", 0)),
+                "seed": (manifest.get("config") or {}).get("seed"),
+            }
+        except (TypeError, ValueError):
+            continue
+        groups[(study_id, trial_id)].append(observation)
+
+    rows: list[dict[str, Any]] = []
+    for (study_id, trial_id), observations in sorted(groups.items()):
+        wall = [item["wall_seconds"] for item in observations]
+        gpu_wall = [item["gpu_wall_seconds"] for item in observations]
+        memory = [item["process_memory_peak_mb"] for item in observations]
+        placement_memory = [item["placement_memory_peak_mb"] for item in observations]
+        active = [item["device_active_seconds"] for item in observations]
+        energy = [item["device_energy_joules"] for item in observations]
+        rows.append(
+            {
+                "study_id": study_id,
+                "trial_id": trial_id,
+                "n": len(observations),
+                "wall_seconds_mean": statistics.fmean(wall),
+                "wall_seconds_std": statistics.stdev(wall) if len(wall) > 1 else 0.0,
+                "gpu_hours_mean": statistics.fmean(gpu_wall) / 3600,
+                "gpu_hours_total": sum(gpu_wall) / 3600,
+                "process_memory_peak_mb_mean": statistics.fmean(memory),
+                "process_memory_peak_mb_max": max(memory),
+                "placement_memory_peak_mb_mean": statistics.fmean(placement_memory),
+                "placement_memory_peak_mb_max": max(placement_memory),
+                "device_active_seconds_mean": statistics.fmean(active),
+                "device_energy_kwh_mean": statistics.fmean(energy) / 3_600_000,
+                "attempts_total": sum(item["attempts"] for item in observations),
+                "seeds": sorted(
+                    item["seed"] for item in observations if item["seed"] is not None
+                ),
+            }
+        )
+    return rows

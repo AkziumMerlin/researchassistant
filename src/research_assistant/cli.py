@@ -13,9 +13,14 @@ from research_assistant import __version__
 from research_assistant.config import dump_config, load_config
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.execution import execute_run
-from research_assistant.planning import compile_plan
+from research_assistant.launching import (
+    LocalSubprocessLauncher,
+    capture_worker_resources,
+    load_launcher_reference,
+)
+from research_assistant.planning import RunManifest, compile_plan
 from research_assistant.plugins import load_registry
-from research_assistant.reporting import collect_summary
+from research_assistant.reporting import collect_resource_summary, collect_summary
 
 app = typer.Typer(
     name="ra",
@@ -180,6 +185,55 @@ def run(
 
 
 @app.command()
+def launch(
+    path: Path,
+    launcher: Annotated[Path | None, typer.Option("--launcher")] = None,
+    set_: Annotated[list[str] | None, typer.Option("--set", help="Experiment KEY=VALUE.")] = None,
+    launcher_set: Annotated[
+        list[str] | None, typer.Option("--launcher-set", help="Launcher KEY=VALUE.")
+    ] = None,
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+    resume: Annotated[bool, typer.Option("--resume/--no-resume")] = True,
+) -> None:
+    """Schedule plan runs as isolated local CPU/GPU subprocesses."""
+    try:
+        _, registry, compiled = _load(path, set_ or [])
+        reference = load_launcher_reference(launcher, launcher_set or [])
+        configured = registry.invoke("launcher", reference, None)
+        if not isinstance(configured, LocalSubprocessLauncher):
+            raise ResearchAssistantError("launcher does not implement the local launcher contract")
+        results = configured.launch(
+            compiled,
+            artifact_root=output,
+            resume=resume,
+            on_event=typer.echo,
+        )
+    except ResearchAssistantError as exc:
+        _abort(exc)
+    if any(exit_code != 0 for exit_code in results.values()):
+        raise typer.Exit(code=1)
+
+
+@app.command("_worker", hidden=True)
+def worker(
+    manifest_path: Path,
+    resume: Annotated[bool, typer.Option("--resume/--no-resume")] = True,
+) -> None:
+    """Execute one immutable run manifest inside a launcher subprocess."""
+    try:
+        payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest = RunManifest.model_validate(payload)
+        registry = load_registry(manifest.config.plugins)
+        artifact_root = manifest_path.resolve().parents[2]
+        try:
+            execute_run(manifest, registry, artifact_root=artifact_root, resume=resume)
+        finally:
+            capture_worker_resources(manifest_path.parent)
+    except (OSError, ValueError, ResearchAssistantError) as exc:
+        _abort(ResearchAssistantError(str(exc)))
+
+
+@app.command()
 def status(root: Annotated[Path, typer.Argument()] = Path("runs")) -> None:
     """List run statuses under an artifact root."""
     paths = sorted(root.glob("*/*/status.json"))
@@ -212,6 +266,38 @@ def report_summary(
             f"{row['study_id']:<5} {row['trial_id']:<10} {row['stage']:<12} "
             f"{row['metric']:<30} {row['n']:>2} "
             f"{row['mean']:.6g} ± {row['std']:.3g}"
+        )
+
+
+@report_app.command("resources")
+def report_resources(
+    root: Annotated[Path, typer.Argument()] = Path("runs"),
+    trial: Annotated[list[str] | None, typer.Option("--trial")] = None,
+    config_path: Annotated[Path | None, typer.Option("--config")] = None,
+    set_: Annotated[list[str] | None, typer.Option("--set", help="Config KEY=VALUE.")] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Show historical compute and GPU-memory use for exact trial configurations."""
+    trial_ids = set(trial or [])
+    if config_path is not None:
+        try:
+            _, _, compiled = _load(config_path, set_ or [])
+        except ResearchAssistantError as exc:
+            _abort(exc)
+        trial_ids.update(run.trial_id for run in compiled.runs)
+    rows = collect_resource_summary(root, trial_ids=trial_ids or None)
+    if json_output:
+        typer.echo(json.dumps(rows, indent=2, sort_keys=True))
+        return
+    if not rows:
+        typer.echo(f"no matching completed resource profiles found under {root}")
+        return
+    typer.echo("study trial      n wall mean  GPU-h/run  peak memory  attempts")
+    for row in rows:
+        typer.echo(
+            f"{row['study_id']:<5} {row['trial_id']:<10} {row['n']:>2} "
+            f"{row['wall_seconds_mean']:>8.1f}s {row['gpu_hours_mean']:>10.4f} "
+            f"{row['placement_memory_peak_mb_max']:>9.0f}MiB {row['attempts_total']:>9}"
         )
 
 

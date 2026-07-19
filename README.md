@@ -7,8 +7,8 @@ stores enough structured state to resume and inspect every run.
 The core deliberately knows nothing about a particular dataset, model family, benchmark, or
 training framework. Projects add those concepts as namespaced components.
 
-> Status: early MVP. The current release provides the orchestration core, plugin API, and an
-> optional single-device PyTorch integration. A parallel GPU launcher is the next milestone.
+> Status: early MVP. The current release provides the orchestration core, plugin API, optional
+> single-device PyTorch integration, and a shared-GPU local subprocess launcher.
 
 ## What works now
 
@@ -26,6 +26,8 @@ training framework. Projects add those concepts as namespaced components.
 - stage-local component overrides for test/OOD protocols;
 - safe resume with distinct failed/interrupted states;
 - optional recipe-based PyTorch fit/evaluate stages with atomic checkpoints;
+- shared-GPU subprocess scheduling with configurable memory/utilization gates;
+- per-attempt compute telemetry and trial-aware historical memory estimates;
 - seed-aware mean and standard-deviation reports;
 - a compact Linux CLI.
 
@@ -232,6 +234,31 @@ PYTHONPATH=examples/torch ra run examples/torch/configs/regression.yaml
 
 See [docs/torch.md](docs/torch.md) for the complete contract and checkpoint behavior.
 
+## Shared-GPU scheduling
+
+Use `ra launch` to isolate every run in its own process and assign physical NVIDIA GPUs dynamically:
+
+```bash
+PYTHONPATH=examples/torch ra launch examples/torch/configs/regression.yaml \
+  --launcher examples/torch/configs/shared-gpu-launcher.yaml
+```
+
+The default shared-server policy permits foreign CUDA processes. Eligibility is controlled by
+current free memory, device utilization, an optional device allow-list, and the number of
+ResearchAssistant workers already assigned to a GPU. `resources.memory_gb` is an explicit per-run
+request; otherwise the scheduler uses the historical placement-memory peak of the exact trial with
+a configurable safety factor. PyTorch workers add allocator-native memory high-water marks so short
+peaks are not dependent on the external sampling interval.
+
+Inspect previous costs for the configurations in a plan:
+
+```bash
+ra report resources runs --config examples/torch/configs/regression.yaml
+```
+
+See [docs/launcher.md](docs/launcher.md) for the policy schema, telemetry guarantees, and shared-GPU
+attribution rules.
+
 ## Artifact layout
 
 ```text
@@ -240,6 +267,8 @@ runs/<study>/<run-id>/
 ├── environment.json
 ├── status.json
 ├── metrics.jsonl
+├── resources.json          # launcher-managed runs
+├── resource-events.jsonl   # sampled GPU context
 └── ... project artifacts ...
 ```
 
