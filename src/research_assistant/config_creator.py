@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -129,6 +130,50 @@ def _validate_unique_assignments(
             raise ConfigError(f"duplicate {label} name {key!r}")
         result[key] = value
     return result
+
+
+def assemble_config(
+    *,
+    experiment_name: str,
+    description: str | None,
+    tags: Sequence[str],
+    plugins: Sequence[str],
+    seeds: Sequence[int],
+    components: Mapping[str, Mapping[str, Any]],
+    stages: Sequence[Mapping[str, Any]],
+    accelerator: str = "auto",
+    devices: int = 1,
+    memory_gb: float | None = None,
+    artifact_root: str = "runs",
+) -> ExperimentConfig:
+    """Build the shared typed config representation used by terminal and web creators."""
+    if not seeds:
+        raise ConfigError("seeds must contain at least one integer")
+    if not all(isinstance(seed, int) and not isinstance(seed, bool) for seed in seeds):
+        raise ConfigError("seeds must contain only integers")
+    if len(seeds) != len(set(seeds)):
+        raise ConfigError("seeds must be unique")
+
+    experiment: dict[str, Any] = {"name": experiment_name, "tags": list(tags)}
+    if description:
+        experiment["description"] = description
+    document: dict[str, Any] = {
+        "version": 1,
+        "experiment": experiment,
+        "plugins": list(plugins),
+        "seed": seeds[0],
+        "components": copy.deepcopy(dict(components)),
+        "stages": copy.deepcopy(list(stages)),
+        "resources": {
+            "accelerator": accelerator,
+            "devices": devices,
+            "memory_gb": memory_gb,
+        },
+        "artifacts": {"root": artifact_root},
+    }
+    if len(seeds) > 1:
+        document["matrix"] = {"seed": list(seeds)}
+    return parse_config(document)
 
 
 @dataclass(slots=True)
@@ -265,26 +310,19 @@ class ConfigCreator:
             raise ConfigError("memory_gb must be a number or null")
         artifact_root = self.prompt.ask("Artifact root", default="runs")
 
-        experiment: dict[str, Any] = {"name": experiment_name, "tags": tags}
-        if description:
-            experiment["description"] = description
-        document: dict[str, Any] = {
-            "version": 1,
-            "experiment": experiment,
-            "plugins": list(self.plugins),
-            "seed": seeds[0],
-            "components": components,
-            "stages": stages,
-            "resources": {
-                "accelerator": accelerator,
-                "devices": devices,
-                "memory_gb": memory,
-            },
-            "artifacts": {"root": artifact_root},
-        }
-        if len(seeds) > 1:
-            document["matrix"] = {"seed": seeds}
-        return parse_config(document)
+        return assemble_config(
+            experiment_name=experiment_name,
+            description=description,
+            tags=tags,
+            plugins=self.plugins,
+            seeds=seeds,
+            components=components,
+            stages=stages,
+            accelerator=accelerator,
+            devices=devices,
+            memory_gb=memory,
+            artifact_root=artifact_root,
+        )
 
 
 def parse_selection(values: Sequence[str], *, option: str) -> list[tuple[str, str]]:

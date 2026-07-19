@@ -8,7 +8,8 @@ The core deliberately knows nothing about a particular dataset, model family, be
 training framework. Projects add those concepts as namespaced components.
 
 > Status: early MVP. The current release provides the orchestration core, plugin API, optional
-> single-device PyTorch integration, and a shared-GPU local subprocess launcher.
+> single-device PyTorch integration, a shared-GPU local subprocess launcher, and a local browser
+> workbench.
 
 ## What works now
 
@@ -29,6 +30,7 @@ training framework. Projects add those concepts as namespaced components.
 - shared-GPU subprocess scheduling with configurable memory/utilization gates;
 - per-attempt compute telemetry and trial-aware historical memory estimates;
 - an interactive schema-driven config creator built from registered components;
+- a bundled Monaco workbench for editing files and visually creating/validating configs;
 - seed-aware mean and standard-deviation reports;
 - a compact Linux CLI.
 
@@ -49,6 +51,12 @@ For the built-in PyTorch stages:
 pip install -e '.[dev,torch]'
 ```
 
+For the local browser UI:
+
+```bash
+pip install -e '.[dev,ui]'
+```
+
 ## Five-minute example
 
 Create a tiny project:
@@ -66,6 +74,28 @@ ra report summary runs
 The generated example contains one component, one custom stage, three seeds, and a dependent
 evaluation stage. Running the same command again resumes the already completed runs instead of
 duplicating them.
+
+## Local browser workbench
+
+Open the current project in the bundled UI:
+
+```bash
+ra ui . --plugin my_project.plugin
+```
+
+The workbench provides a project explorer, Monaco file editor with tabs and `Ctrl+S`, the live
+component registry, a visual schema-driven config creator, and unsaved-config validation with a run
+plan preview. It is self-contained and does not fetch editor code from a CDN.
+
+For shared servers, keep the localhost binding and forward the port over SSH:
+
+```bash
+ra ui . --plugin my_project.plugin --no-open --port 8765
+```
+
+The editor uses optimistic revisions and atomic replacement: an external file change produces a
+conflict instead of being overwritten. See [docs/ui.md](docs/ui.md) for the security boundary,
+frontend build, and current limitations.
 
 ## Create configurations from the registry
 

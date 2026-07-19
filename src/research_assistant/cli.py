@@ -71,6 +71,29 @@ def doctor() -> None:
     typer.echo(yaml.safe_dump(payload, sort_keys=False).rstrip())
 
 
+@app.command()
+def ui(
+    path: Annotated[Path, typer.Argument()] = Path("."),
+    plugin: Annotated[list[str] | None, typer.Option("--plugin")] = None,
+    host: Annotated[str, typer.Option("--host")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", min=1, max=65535)] = 8765,
+    open_browser: Annotated[bool, typer.Option("--open/--no-open")] = True,
+) -> None:
+    """Open the local browser workbench for a ResearchAssistant project."""
+    try:
+        from research_assistant.ui.server import run_ui
+
+        run_ui(
+            path,
+            plugins=plugin or [],
+            host=host,
+            port=port,
+            open_browser=open_browser,
+        )
+    except ResearchAssistantError as exc:
+        _abort(exc)
+
+
 @config_app.command("validate")
 def validate_config(
     path: Path,

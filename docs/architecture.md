@@ -17,6 +17,11 @@ config -> registry -> plan -> executor -> artifact store
 The CLI contains presentation logic only. A future TUI or web UI should call the same application
 services and consume the same manifests and events.
 
+The base browser workbench follows that boundary. Its FastAPI layer exposes bounded workspace,
+registry, config assembly, and planning operations; the bundled Monaco frontend never reimplements
+component validation or run identity. Both terminal and web creators assemble the same
+`ExperimentConfig` model before invoking the same planner.
+
 ## Stable concepts
 
 ### Component
@@ -83,6 +88,17 @@ process samples with framework-native high-water marks when available.
 On shared GPUs, per-process wall time and memory are kept separate from device-wide utilization,
 power, and total used memory. Foreign processes are observed and recorded but allowed by default.
 
+### Local UI and workspace
+
+`ra ui` serves packaged static assets on localhost. The browser sees relative POSIX paths only.
+The backend resolves every path under the selected project root, excludes generated/heavy
+directories, rejects symlink escapes, limits editable files to UTF-8 text, and performs atomic
+writes guarded by a SHA-256 revision.
+
+The UI intentionally has no terminal, arbitrary command endpoint, delete action, or run-launch
+button in this milestone. Experiment execution remains an explicit CLI action while the UI focuses
+on authoring and planning.
+
 ## KNO migration map
 
 | Existing responsibility | ResearchAssistant destination |
@@ -108,7 +124,9 @@ separately installable adapter.
 - interrupted Python processes are recognized on the next invocation only through persisted
   stage state;
 - config inheritance intentionally supports a small `extends` mechanism instead of adopting
-  Hydra's job lifecycle.
+  Hydra's job lifecycle;
+- the first UI milestone edits text and creates/validates configs, but does not yet stream run
+  events or expose experiment execution.
 
 ## Next milestones
 
