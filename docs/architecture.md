@@ -85,7 +85,7 @@ separately installable adapter.
 ## Deliberate MVP limitations
 
 - execution is local and sequential;
-- there is no reusable PyTorch fit/evaluate stage yet;
+- the reusable PyTorch stages are single-device and intentionally leave task semantics in recipes;
 - there is no SQLite index yet; the current report command scans self-describing run directories;
 - interrupted Python processes are recognized on the next invocation only through persisted
   stage state;
@@ -94,11 +94,10 @@ separately installable adapter.
 
 ## Next milestones
 
-1. Add a lazy, optional PyTorch integration with `data`, `model`, and `recipe` protocols.
-2. Add subprocess workers and a local CUDA lease scheduler.
-3. Add an event index and seed-aware reports based on manifests, never path parsing.
-4. Migrate one KNO protocol as an external acceptance-test plugin.
-5. Add Slurm and tracking sinks behind plugin contracts.
+1. Add subprocess workers and a local CUDA lease scheduler.
+2. Add an event index and seed-aware reports based on manifests, never path parsing.
+3. Migrate one KNO protocol as an external acceptance-test plugin.
+4. Add Slurm and tracking sinks behind plugin contracts.
 
 The detailed source audit that motivated these boundaries is in
 [kno-source-audit.md](kno-source-audit.md).

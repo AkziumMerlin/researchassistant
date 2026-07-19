@@ -7,8 +7,8 @@ stores enough structured state to resume and inspect every run.
 The core deliberately knows nothing about a particular dataset, model family, benchmark, or
 training framework. Projects add those concepts as namespaced components.
 
-> Status: early MVP. The current release provides the orchestration core and plugin API. A
-> reusable PyTorch training integration and parallel GPU launcher are the next milestones.
+> Status: early MVP. The current release provides the orchestration core, plugin API, and an
+> optional single-device PyTorch integration. A parallel GPU launcher is the next milestone.
 
 ## What works now
 
@@ -25,6 +25,7 @@ training framework. Projects add those concepts as namespaced components.
 - named artifacts passed between dependent stages;
 - stage-local component overrides for test/OOD protocols;
 - safe resume with distinct failed/interrupted states;
+- optional recipe-based PyTorch fit/evaluate stages with atomic checkpoints;
 - seed-aware mean and standard-deviation reports;
 - a compact Linux CLI.
 
@@ -37,6 +38,12 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -e '.[dev]'
 ra doctor
+```
+
+For the built-in PyTorch stages:
+
+```bash
+pip install -e '.[dev,torch]'
 ```
 
 ## Five-minute example
@@ -184,6 +191,46 @@ Then inspect the generated parameter schema:
 ```bash
 ra component describe model my_project/mlp --plugin my_project.plugin
 ```
+
+## PyTorch without a universal Trainer
+
+The optional integration supplies `torch/fit` and `torch/evaluate`. A project registers three
+ordinary components:
+
+- `model` returns an `nn.Module`;
+- `data` returns `TorchDataLoaders`;
+- `recipe` returns `TorchRecipe`, whose two steps own batch unpacking, device transfer, forward
+  semantics, loss, and task metrics.
+
+```python
+from research_assistant.integrations.torch import TorchRecipe, TorchStep
+
+
+def build_recipe(config, _context):
+    def step(model, batch, device, _split=None):
+        inputs, target = (value.to(device) for value in batch)
+        prediction = model(inputs)
+        loss = loss_fn(prediction, target)
+        return TorchStep(loss=loss, metrics={"mae": mae(prediction, target)}, weight=len(inputs))
+
+    return TorchRecipe(
+        optimizer=lambda model: torch.optim.AdamW(model.parameters(), lr=config.lr),
+        train_step=lambda model, batch, device: step(model, batch, device),
+        eval_step=lambda model, batch, device, split: step(model, batch, device, split),
+    )
+```
+
+ResearchAssistant owns epochs, train/eval mode, optional CUDA AMP, metric reduction, validation
+selection, and resume. The recipe owns the scientific meaning of a step, so rollouts and unusual
+batch structures do not require flags in the core.
+
+Run the complete regression example:
+
+```bash
+PYTHONPATH=examples/torch ra run examples/torch/configs/regression.yaml
+```
+
+See [docs/torch.md](docs/torch.md) for the complete contract and checkpoint behavior.
 
 ## Artifact layout
 
