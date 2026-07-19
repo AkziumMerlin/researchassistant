@@ -1,3 +1,200 @@
 # ResearchAssistant
 
-Initial repository bootstrap.
+ResearchAssistant is a local-first, plugin-driven experiment orchestrator. It turns a typed
+YAML configuration into immutable run manifests, executes a dependency graph of stages, and
+stores enough structured state to resume and inspect every run.
+
+The core deliberately knows nothing about a particular dataset, model family, benchmark, or
+training framework. Projects add those concepts as namespaced components.
+
+> Status: early MVP. The current release provides the orchestration core and plugin API. A
+> reusable PyTorch training integration and parallel GPU launcher are the next milestones.
+
+## What works now
+
+- strict Pydantic-validated YAML;
+- relative `extends` and typed `--set KEY=VALUE` overrides;
+- namespaced component registry;
+- installed plugins through Python entry points;
+- explicit local plugin modules during development;
+- Cartesian matrices, including multiple random seeds;
+- validated stage DAGs;
+- deterministic trial and run identifiers;
+- atomic manifests and status updates;
+- structured metrics and safe resume;
+- a compact Linux CLI.
+
+## Install
+
+ResearchAssistant requires Python 3.11 or newer.
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -e '.[dev]'
+ra doctor
+```
+
+## Five-minute example
+
+Create a tiny project:
+
+```bash
+ra init demo
+cd demo
+ra config validate configs/smoke.yaml
+ra plan configs/smoke.yaml
+ra run configs/smoke.yaml
+ra status runs
+```
+
+The generated example contains one component, one custom stage, three seeds, and a dependent
+evaluation stage. Running the same command again resumes the already completed runs instead of
+duplicating them.
+
+## Configuration
+
+```yaml
+version: 1
+
+experiment:
+  name: example
+  tags: [baseline]
+
+plugins:
+  - my_project.plugin
+
+seed: 0
+
+components:
+  model:
+    type: my_project/mlp
+    params:
+      in_features: 16
+      width: 64
+      out_features: 2
+
+matrix:
+  seed: [0, 1, 2]
+  components.model.params.width: [64, 128]
+
+stages:
+  - name: fit
+    type: my_project/fit
+
+  - name: test
+    type: my_project/evaluate
+    needs: [fit]
+    params:
+      split: test
+
+resources:
+  accelerator: cuda
+  devices: 1
+
+artifacts:
+  root: runs
+```
+
+Inspect the fully composed configuration without executing it:
+
+```bash
+ra config render configs/experiment.yaml \
+  --set components.model.params.width=256 \
+  --set 'matrix.seed=[3,4,5]'
+```
+
+`extends` is resolved relative to the child configuration:
+
+```yaml
+extends:
+  - ../base/training.yaml
+
+experiment:
+  name: larger-model
+
+components:
+  model:
+    params:
+      width: 256
+```
+
+Mappings are merged recursively; lists and scalar values are replaced.
+
+## Register a component
+
+Every component has a kind, a namespaced name, a typed parameter model, and a factory. For a
+PyTorch architecture, the project plugin can contain:
+
+```python
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
+from torch import nn
+
+from research_assistant.registry import Registry
+
+
+class MLPConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    in_features: int
+    width: int = 128
+    out_features: int
+
+
+def build_mlp(config: MLPConfig, _context: Any) -> nn.Module:
+    return nn.Sequential(
+        nn.Linear(config.in_features, config.width),
+        nn.GELU(),
+        nn.Linear(config.width, config.out_features),
+    )
+
+
+def register(registry: Registry) -> None:
+    registry.add(
+        "model",
+        "my_project/mlp",
+        factory=build_mlp,
+        schema=MLPConfig,
+        description="A compact two-layer MLP.",
+        provider=__name__,
+    )
+```
+
+During development, put the module in `plugins`. For an installed package, expose the same
+function through `pyproject.toml`:
+
+```toml
+[project.entry-points."research_assistant.plugins"]
+my-project = "my_project.plugin:register"
+```
+
+Then inspect the generated parameter schema:
+
+```bash
+ra component describe model my_project/mlp --plugin my_project.plugin
+```
+
+## Artifact layout
+
+```text
+runs/<study>/<run-id>/
+├── manifest.json
+├── status.json
+├── metrics.jsonl
+└── ... project artifacts ...
+```
+
+`manifest.json` is immutable. `status.json` is written atomically. A resume refuses to reuse a
+directory if its manifest does not match the compiled run.
+
+## Design boundaries
+
+- A `model` only constructs a model; it does not own an experiment.
+- A `data` component owns splits and loading, not the train loop.
+- A `recipe` defines task-specific optimization semantics.
+- A `stage` is an executable unit such as fit, test, OOD evaluation, or report generation.
+- A `launcher` decides where stages run; it must not leak scheduling into training code.
+
+See [docs/architecture.md](docs/architecture.md) for the architecture and KNO migration map.
+

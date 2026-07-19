@@ -1,0 +1,30 @@
+version: 1
+
+experiment:
+  name: smoke
+
+plugins:
+  - ra_example.plugin
+
+seed: 0
+
+components:
+  value:
+    type: example/constant
+    params:
+      value: 1.0
+
+matrix:
+  seed: [0, 1, 2]
+
+stages:
+  - name: fit
+    type: example/measure
+
+  - name: test
+    type: core/noop
+    needs: [fit]
+    params:
+      metrics:
+        test/example: 1.0
+
