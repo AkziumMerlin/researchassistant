@@ -60,6 +60,11 @@ fit -> test
 Each run directory is self-describing. The filesystem is the durable source of truth; a future
 SQLite database will be a rebuildable index rather than the only copy of experiment state.
 
+Stages may override global components. This lets a test, OOD, or resolution stage reuse the fit
+recipe and checkpoint while constructing a different data provider. Completed stages expose
+named artifacts and final metrics to their dependants; no consumer reconstructs paths from model
+names.
+
 ## KNO migration map
 
 | Existing responsibility | ResearchAssistant destination |
@@ -81,7 +86,7 @@ separately installable adapter.
 
 - execution is local and sequential;
 - there is no reusable PyTorch fit/evaluate stage yet;
-- there is no SQLite index or report aggregation yet;
+- there is no SQLite index yet; the current report command scans self-describing run directories;
 - interrupted Python processes are recognized on the next invocation only through persisted
   stage state;
 - config inheritance intentionally supports a small `extends` mechanism instead of adopting
@@ -95,3 +100,5 @@ separately installable adapter.
 4. Migrate one KNO protocol as an external acceptance-test plugin.
 5. Add Slurm and tracking sinks behind plugin contracts.
 
+The detailed source audit that motivated these boundaries is in
+[kno-source-audit.md](kno-source-audit.md).

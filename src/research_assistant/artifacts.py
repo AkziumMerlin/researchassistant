@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 import os
+import platform
+import sys
 from datetime import UTC, datetime
+from importlib.metadata import distributions
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +32,7 @@ class RunStore:
         artifact_root = Path(root or manifest.config.artifacts.root)
         self.run_dir = artifact_root / manifest.study_id / manifest.run_id
         self.manifest_path = self.run_dir / "manifest.json"
+        self.environment_path = self.run_dir / "environment.json"
         self.status_path = self.run_dir / "status.json"
         self.metrics_path = self.run_dir / "metrics.jsonl"
         self.manifest = manifest
@@ -42,6 +46,22 @@ class RunStore:
                 raise ExecutionError(f"manifest mismatch for existing run directory {self.run_dir}")
         else:
             atomic_write_json(self.manifest_path, expected)
+        if not self.environment_path.exists():
+            packages = {
+                str(dist.metadata.get("Name", "unknown")): dist.version
+                for dist in distributions()
+                if dist.metadata.get("Name")
+            }
+            atomic_write_json(
+                self.environment_path,
+                {
+                    "captured_at": utc_now(),
+                    "python": platform.python_version(),
+                    "executable": sys.executable,
+                    "platform": platform.platform(),
+                    "packages": dict(sorted(packages.items(), key=lambda item: item[0].lower())),
+                },
+            )
 
     def load_status(self) -> dict[str, Any]:
         if not self.status_path.exists():
@@ -58,14 +78,24 @@ class RunStore:
         status["updated_at"] = utc_now()
         atomic_write_json(self.status_path, status)
 
-    def log_metrics(self, stage: str, metrics: dict[str, float]) -> None:
+    def log_metrics(
+        self,
+        stage: str,
+        metrics: dict[str, float],
+        *,
+        step: int | float | None = None,
+        kind: str = "progress",
+    ) -> None:
         if not metrics:
             return
         event = {
             "timestamp": utc_now(),
             "run_id": self.manifest.run_id,
             "stage": stage,
+            "kind": kind,
             "metrics": metrics,
         }
+        if step is not None:
+            event["step"] = step
         with self.metrics_path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(event, sort_keys=True) + "\n")

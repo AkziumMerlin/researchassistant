@@ -15,6 +15,7 @@ from research_assistant.errors import ResearchAssistantError
 from research_assistant.execution import execute_run
 from research_assistant.planning import compile_plan
 from research_assistant.plugins import load_registry
+from research_assistant.reporting import collect_summary
 
 app = typer.Typer(
     name="ra",
@@ -24,8 +25,10 @@ app = typer.Typer(
 )
 config_app = typer.Typer(help="Validate and render experiment configurations.")
 component_app = typer.Typer(help="Inspect registered components.")
+report_app = typer.Typer(help="Aggregate structured run results.")
 app.add_typer(config_app, name="config")
 app.add_typer(component_app, name="component")
+app.add_typer(report_app, name="report")
 
 
 def _abort(exc: Exception) -> None:
@@ -186,6 +189,30 @@ def status(root: Annotated[Path, typer.Argument()] = Path("runs")) -> None:
     for path in paths:
         payload = json.loads(path.read_text(encoding="utf-8"))
         typer.echo(f"{payload['run_id']:12} {payload['state']:10} {path.parent}")
+
+
+@report_app.command("summary")
+def report_summary(
+    root: Annotated[Path, typer.Argument()] = Path("runs"),
+    stage: Annotated[str | None, typer.Option("--stage")] = None,
+    metric: Annotated[str | None, typer.Option("--metric")] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Aggregate final metrics by trial across seeds."""
+    rows = collect_summary(root, stage=stage, metric=metric)
+    if json_output:
+        typer.echo(json.dumps(rows, indent=2, sort_keys=True))
+        return
+    if not rows:
+        typer.echo(f"no matching completed metrics found under {root}")
+        return
+    typer.echo("study trial      stage        metric                         n mean ± std")
+    for row in rows:
+        typer.echo(
+            f"{row['study_id']:<5} {row['trial_id']:<10} {row['stage']:<12} "
+            f"{row['metric']:<30} {row['n']:>2} "
+            f"{row['mean']:.6g} ± {row['std']:.3g}"
+        )
 
 
 @app.command()

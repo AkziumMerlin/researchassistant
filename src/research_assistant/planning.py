@@ -71,6 +71,8 @@ def _validate_components(config: ExperimentConfig, registry: Registry) -> None:
     for kind, reference in config.components.items():
         registry.validate(kind, reference)
     for stage in config.stages:
+        for kind, reference in stage.components.items():
+            registry.validate(kind, reference)
         registry.validate("stage", {"type": stage.type, "params": stage.params})
 
 

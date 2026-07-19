@@ -27,6 +27,7 @@ class StageConfig(StrictModel):
     name: str = Field(pattern=LOCAL_NAME_PATTERN)
     type: str = Field(pattern=COMPONENT_NAME_PATTERN)
     needs: list[str] = Field(default_factory=list)
+    components: dict[str, ComponentRef] = Field(default_factory=dict)
     params: dict[str, Any] = Field(default_factory=dict)
 
 

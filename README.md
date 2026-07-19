@@ -21,7 +21,11 @@ training framework. Projects add those concepts as namespaced components.
 - validated stage DAGs;
 - deterministic trial and run identifiers;
 - atomic manifests and status updates;
-- structured metrics and safe resume;
+- streaming and final structured metrics;
+- named artifacts passed between dependent stages;
+- stage-local component overrides for test/OOD protocols;
+- safe resume with distinct failed/interrupted states;
+- seed-aware mean and standard-deviation reports;
 - a compact Linux CLI.
 
 ## Install
@@ -46,6 +50,7 @@ ra config validate configs/smoke.yaml
 ra plan configs/smoke.yaml
 ra run configs/smoke.yaml
 ra status runs
+ra report summary runs
 ```
 
 The generated example contains one component, one custom stage, three seeds, and a dependent
@@ -85,6 +90,11 @@ stages:
   - name: test
     type: my_project/evaluate
     needs: [fit]
+    components:
+      data:
+        type: my_project/dataset
+        params:
+          split: test
     params:
       split: test
 
@@ -180,6 +190,7 @@ ra component describe model my_project/mlp --plugin my_project.plugin
 ```text
 runs/<study>/<run-id>/
 ├── manifest.json
+├── environment.json
 ├── status.json
 ├── metrics.jsonl
 └── ... project artifacts ...
@@ -187,6 +198,10 @@ runs/<study>/<run-id>/
 
 `manifest.json` is immutable. `status.json` is written atomically. A resume refuses to reuse a
 directory if its manifest does not match the compiled run.
+
+Long-running stages can call `context.log_metrics(metrics, step=epoch)`. A fit stage publishes
+checkpoints through `StageResult.artifacts`; dependent stages resolve them with
+`context.artifact("fit", "best")`. Artifact paths must remain inside the run directory.
 
 ## Design boundaries
 
@@ -197,4 +212,3 @@ directory if its manifest does not match the compiled run.
 - A `launcher` decides where stages run; it must not leak scheduling into training code.
 
 See [docs/architecture.md](docs/architecture.md) for the architecture and KNO migration map.
-
