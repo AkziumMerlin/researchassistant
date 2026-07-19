@@ -11,6 +11,11 @@ import yaml
 
 from research_assistant import __version__
 from research_assistant.config import dump_config, load_config
+from research_assistant.config_creator import (
+    ConfigCreator,
+    TerminalPrompt,
+    parse_selection,
+)
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.execution import execute_run
 from research_assistant.launching import (
@@ -90,6 +95,41 @@ def render_config(
     except ResearchAssistantError as exc:
         _abort(exc)
     typer.echo(dump_config(config), nl=False)
+
+
+@config_app.command("create")
+def create_config(
+    path: Path,
+    plugin: Annotated[list[str] | None, typer.Option("--plugin")] = None,
+    component: Annotated[
+        list[str] | None,
+        typer.Option("--component", help="Preselect KIND=REGISTERED_TYPE."),
+    ] = None,
+    stage: Annotated[
+        list[str] | None,
+        typer.Option("--stage", help="Preselect NAME=REGISTERED_TYPE."),
+    ] = None,
+    name: Annotated[str | None, typer.Option("--name")] = None,
+    overwrite: Annotated[bool, typer.Option("--overwrite")] = False,
+) -> None:
+    """Interactively build a validated experiment config from registered components."""
+    if path.exists() and not overwrite:
+        _abort(ResearchAssistantError(f"refusing to overwrite existing file: {path}"))
+    plugins = plugin or []
+    try:
+        registry = load_registry(plugins)
+        creator = ConfigCreator(registry=registry, prompt=TerminalPrompt(), plugins=plugins)
+        config = creator.build(
+            default_name=name or path.stem.replace("_", "-").replace(" ", "-"),
+            selected_components=parse_selection(component or [], option="--component"),
+            selected_stages=parse_selection(stage or [], option="--stage"),
+        )
+        compiled = compile_plan(config, registry)
+    except ResearchAssistantError as exc:
+        _abort(exc)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(dump_config(config, compact=True), encoding="utf-8")
+    typer.echo(f"created {path} ({len(compiled.runs)} run(s), trial={compiled.runs[0].trial_id})")
 
 
 @component_app.command("list")

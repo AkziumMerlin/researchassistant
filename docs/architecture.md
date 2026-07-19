@@ -27,6 +27,10 @@ before any job starts. The factory receives the validated schema instance and a 
 The core does not impose a closed enumeration of component kinds. Conventional kinds are
 `model`, `data`, `recipe`, `metric`, `callback`, `stage`, `launcher`, and `reporter`.
 
+The interactive config creator consumes these same registry specifications and Pydantic schemas.
+It is a presentation layer over Registry and planning, not a second component database. A future UI
+can reuse the same schema metadata and validation service.
+
 ### Plan
 
 A plan is the immutable product of config composition, overrides, validation, and matrix

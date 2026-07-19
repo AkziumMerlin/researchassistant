@@ -28,6 +28,7 @@ training framework. Projects add those concepts as namespaced components.
 - optional recipe-based PyTorch fit/evaluate stages with atomic checkpoints;
 - shared-GPU subprocess scheduling with configurable memory/utilization gates;
 - per-attempt compute telemetry and trial-aware historical memory estimates;
+- an interactive schema-driven config creator built from registered components;
 - seed-aware mean and standard-deviation reports;
 - a compact Linux CLI.
 
@@ -65,6 +66,30 @@ ra report summary runs
 The generated example contains one component, one custom stage, three seeds, and a dependent
 evaluation stage. Running the same command again resumes the already completed runs instead of
 duplicating them.
+
+## Create configurations from the registry
+
+Build a validated YAML interactively from built-in and project components:
+
+```bash
+ra config create configs/experiment.yaml --plugin my_project.plugin
+```
+
+Frequently used components can be preselected while their typed parameters are still prompted:
+
+```bash
+ra config create configs/experiment.yaml \
+  --plugin my_project.plugin \
+  --component model=my_project/mlp \
+  --component data=my_project/dataset \
+  --component recipe=my_project/mse \
+  --stage fit=torch/fit \
+  --stage test=torch/evaluate
+```
+
+The creator shows required fields, defaults, enums, and descriptions from each registered Pydantic
+schema, then compiles the plan before writing. See
+[docs/config-creator.md](docs/config-creator.md) for the full flow.
 
 ## Configuration
 

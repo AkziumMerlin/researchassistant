@@ -100,9 +100,12 @@ def load_config(path: str | Path, overrides: list[str] | None = None) -> Experim
     return parse_config(document)
 
 
-def dump_config(config: ExperimentConfig) -> str:
+def dump_config(config: ExperimentConfig, *, compact: bool = False) -> str:
+    document = config.model_dump(mode="json", exclude_none=True, exclude_defaults=compact)
+    if compact:
+        document = {"version": config.version, **document}
     return yaml.safe_dump(
-        config.model_dump(mode="json", exclude_none=True),
+        document,
         sort_keys=False,
         allow_unicode=True,
     )
