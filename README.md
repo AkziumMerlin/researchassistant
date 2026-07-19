@@ -1,0 +1,3 @@
+# ResearchAssistant
+
+Initial repository bootstrap.
