@@ -41,6 +41,16 @@ class ArtifactConfig(StrictModel):
     root: str = "runs"
 
 
+class TensorBoardConfig(StrictModel):
+    enabled: bool = False
+    directory: str = "tensorboard"
+    flush_seconds: int = Field(default=30, ge=1)
+
+
+class LoggingConfig(StrictModel):
+    tensorboard: TensorBoardConfig = Field(default_factory=TensorBoardConfig)
+
+
 class ExperimentConfig(StrictModel):
     version: Literal[1] = 1
     experiment: ExperimentMeta
@@ -51,6 +61,7 @@ class ExperimentConfig(StrictModel):
     stages: list[StageConfig]
     resources: ResourceConfig = Field(default_factory=ResourceConfig)
     artifacts: ArtifactConfig = Field(default_factory=ArtifactConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     @model_validator(mode="after")
     def validate_graph_names(self) -> ExperimentConfig:

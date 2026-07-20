@@ -36,6 +36,10 @@ base UI deliberately rejects `0.0.0.0` and other remote bindings.
 - multiple seeds, resources, stages, and stage dependencies;
 - validation of unsaved YAML, including relative `extends` inside the workspace;
 - run/trial preview before execution.
+- an incremental run/metric catalog for large artifact roots;
+- configurable learning curves with seed aggregation, uncertainty, log scale, and downsampling;
+- configurable LaTeX tables with row/column grouping, ranking, precision, captions, and labels;
+- reproducible report-bundle export under `reports/`.
 
 The creator returns an unsaved editor buffer. Saving remains a separate explicit action.
 
@@ -55,6 +59,11 @@ headers only, and ships Monaco assets inside the wheel. No editor code is loaded
 
 There is intentionally no browser terminal, command runner, file deletion, or experiment launch
 endpoint in the base milestone.
+
+The analytics endpoints accept only artifact roots inside the workspace. They never return raw
+unbounded event streams: aggregation and optional step bucketing run in SQLite, and the browser
+receives a bounded series payload. The SQLite file is a disposable index; run-local JSONL events
+remain the source of truth.
 
 ## Frontend development
 

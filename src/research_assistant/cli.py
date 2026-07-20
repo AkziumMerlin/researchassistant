@@ -8,8 +8,10 @@ from typing import Annotated
 
 import typer
 import yaml
+from pydantic import ValidationError
 
 from research_assistant import __version__
+from research_assistant.analytics import ChartSpec, MetricIndex, TableSpec
 from research_assistant.config import dump_config, load_config
 from research_assistant.config_creator import (
     ConfigCreator,
@@ -25,7 +27,12 @@ from research_assistant.launching import (
 )
 from research_assistant.planning import RunManifest, compile_plan
 from research_assistant.plugins import load_registry
-from research_assistant.reporting import collect_resource_summary, collect_summary
+from research_assistant.reporting import (
+    collect_resource_summary,
+    collect_summary,
+    write_chart_bundle,
+    write_table_bundle,
+)
 
 app = typer.Typer(
     name="ra",
@@ -362,6 +369,70 @@ def report_resources(
             f"{row['wall_seconds_mean']:>8.1f}s {row['gpu_hours_mean']:>10.4f} "
             f"{row['placement_memory_peak_mb_max']:>9.0f}MiB {row['attempts_total']:>9}"
         )
+
+
+@report_app.command("index")
+def report_index(
+    root: Annotated[Path, typer.Argument()] = Path("runs"),
+    rebuild: Annotated[bool, typer.Option("--rebuild")] = False,
+) -> None:
+    """Incrementally index run metadata and metric-event tails."""
+    index = MetricIndex(root)
+    try:
+        result = index.rebuild() if rebuild else index.refresh()
+        result.update(index.catalog())
+    finally:
+        index.close()
+    typer.echo(yaml.safe_dump(result, sort_keys=False).rstrip())
+
+
+def _load_report_spec(path: Path, model):
+    try:
+        payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+        return model.model_validate(payload)
+    except (OSError, yaml.YAMLError, ValidationError) as exc:
+        raise ResearchAssistantError(f"invalid report spec {path}: {exc}") from exc
+
+
+@report_app.command("chart")
+def report_chart(
+    spec_path: Path,
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+    format_: Annotated[list[str] | None, typer.Option("--format")] = None,
+) -> None:
+    """Render a saved chart query to a reproducible report bundle."""
+    try:
+        spec = _load_report_spec(spec_path, ChartSpec)
+        index = MetricIndex(spec.artifact_root)
+        try:
+            index.refresh()
+            destination = output or Path("reports") / spec.name
+            write_chart_bundle(index, spec, destination, formats=tuple(format_ or ["svg", "pdf"]))
+        finally:
+            index.close()
+    except ResearchAssistantError as exc:
+        _abort(exc)
+    typer.echo(str(destination))
+
+
+@report_app.command("table")
+def report_table(
+    spec_path: Path,
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+) -> None:
+    """Render a saved aggregate query to CSV and a LaTeX table."""
+    try:
+        spec = _load_report_spec(spec_path, TableSpec)
+        index = MetricIndex(spec.artifact_root)
+        try:
+            index.refresh()
+            destination = output or Path("reports") / spec.name
+            write_table_bundle(index, spec, destination)
+        finally:
+            index.close()
+    except ResearchAssistantError as exc:
+        _abort(exc)
+    typer.echo(str(destination))
 
 
 @app.command()

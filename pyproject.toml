@@ -28,6 +28,13 @@ ui = [
   "fastapi>=0.116,<1",
   "uvicorn>=0.35,<1",
 ]
+reports = [
+  "matplotlib>=3.8,<4",
+]
+tensorboard = [
+  "torch>=2.2",
+  "tensorboard>=2.16,<3",
+]
 
 [project.scripts]
 ra = "research_assistant.cli:app"

@@ -37,6 +37,7 @@ const state = {
   buffers: new Map(),
   files: [],
   stageCounter: 0,
+  analyticsCatalog: null,
 };
 
 const elements = Object.fromEntries(
@@ -57,6 +58,7 @@ const elements = Object.fromEntries(
     "clear-output",
     "new-file-button",
     "new-config-button",
+    "analytics-button",
     "empty-create-button",
     "validate-button",
     "save-button",
@@ -80,6 +82,39 @@ const elements = Object.fromEntries(
     "creator-artifacts",
     "creator-error",
     "add-stage-button",
+    "analytics-dialog",
+    "close-analytics-dialog",
+    "analytics-root",
+    "refresh-analytics",
+    "analytics-summary",
+    "analytics-error",
+    "chart-name",
+    "chart-metric",
+    "chart-stage",
+    "chart-kind",
+    "chart-group",
+    "chart-uncertainty",
+    "chart-scale",
+    "chart-points",
+    "chart-series",
+    "chart-title",
+    "preview-chart",
+    "export-chart",
+    "chart-preview",
+    "table-name",
+    "table-metric",
+    "table-stage",
+    "table-row",
+    "table-column",
+    "table-direction",
+    "table-precision",
+    "table-rows",
+    "table-columns",
+    "table-label",
+    "table-caption",
+    "preview-table",
+    "export-table",
+    "table-preview",
   ].map((id) => [id, document.getElementById(id)]),
 );
 
@@ -712,6 +747,218 @@ async function submitCreator(event) {
   }
 }
 
+function replaceOptions(select, values, { optional = false } = {}) {
+  const previous = select.value;
+  select.replaceChildren();
+  if (optional) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "all";
+    select.append(option);
+  }
+  for (const value of values) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    select.append(option);
+  }
+  if ([...select.options].some((option) => option.value === previous)) select.value = previous;
+}
+
+async function refreshAnalytics(rebuild = false) {
+  elements["analytics-error"].textContent = "";
+  elements["analytics-summary"].textContent = "Indexing metric tails…";
+  const result = await api("/api/analytics/catalog", {
+    method: "POST",
+    body: JSON.stringify({
+      artifact_root: elements["analytics-root"].value.trim() || "runs",
+      rebuild,
+    }),
+  });
+  state.analyticsCatalog = result.catalog;
+  replaceOptions(elements["chart-metric"], result.catalog.metrics);
+  replaceOptions(elements["table-metric"], result.catalog.metrics);
+  replaceOptions(elements["chart-stage"], result.catalog.stages, { optional: true });
+  replaceOptions(elements["table-stage"], result.catalog.stages, { optional: true });
+  elements["analytics-summary"].textContent =
+    `${result.catalog.run_count} runs · ${result.catalog.event_count} events · ` +
+    `${result.refresh.events_indexed} new`;
+}
+
+async function openAnalytics() {
+  elements["analytics-dialog"].showModal();
+  try {
+    await refreshAnalytics(false);
+  } catch (error) {
+    elements["analytics-error"].textContent = error.message || String(error);
+  }
+}
+
+function chartSpec() {
+  const metric = elements["chart-metric"].value;
+  if (!metric) throw new Error("No indexed metric is selected");
+  const stage = elements["chart-stage"].value;
+  return {
+    name: elements["chart-name"].value.trim() || "chart",
+    artifact_root: elements["analytics-root"].value.trim() || "runs",
+    filters: {
+      metrics: [metric],
+      stages: stage ? [stage] : [],
+      kinds: [elements["chart-kind"].value],
+    },
+    group_by: elements["chart-group"].value,
+    aggregate: "mean",
+    uncertainty: elements["chart-uncertainty"].value,
+    max_points: Number(elements["chart-points"].value),
+    max_series: Number(elements["chart-series"].value),
+    y_scale: elements["chart-scale"].value,
+    title: elements["chart-title"].value.trim() || null,
+    x_label: "step",
+    y_label: metric,
+  };
+}
+
+function svgElement(name, attributes = {}) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", name);
+  for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
+  return node;
+}
+
+function renderChart(chart) {
+  const host = elements["chart-preview"];
+  host.replaceChildren();
+  if (chart.truncated) {
+    const notice = document.createElement("span");
+    notice.className = "chart-limit-note";
+    notice.textContent = `Showing ${chart.series_count} of ${chart.series_total} series. Narrow filters or raise Max series.`;
+    host.append(notice);
+  }
+  const all = chart.series.flatMap((series) =>
+    series.points.map((point) => ({ ...point, series: series.name })),
+  );
+  if (!all.length) {
+    host.textContent = "No matching metric events.";
+    return;
+  }
+  const logScale = chart.spec.y_scale === "log";
+  const valid = all.filter((point) => !logScale || point.y > 0);
+  if (!valid.length) {
+    host.textContent = "Log scale requires positive values.";
+    return;
+  }
+  const width = 900;
+  const height = 360;
+  const padding = { left: 68, right: 24, top: 30, bottom: 46 };
+  const xs = valid.map((point) => Number(point.x));
+  const transformed = (value) => (logScale ? Math.log10(Math.max(Number(value), 1e-300)) : Number(value));
+  const ys = valid.flatMap((point) => [transformed(point.lower), transformed(point.upper)]);
+  let xMin = Math.min(...xs);
+  let xMax = Math.max(...xs);
+  let yMin = Math.min(...ys);
+  let yMax = Math.max(...ys);
+  if (xMin === xMax) xMax = xMin + 1;
+  if (yMin === yMax) yMax = yMin + 1;
+  const sx = (value) => padding.left + ((Number(value) - xMin) / (xMax - xMin)) * (width - padding.left - padding.right);
+  const sy = (value) => height - padding.bottom - ((transformed(value) - yMin) / (yMax - yMin)) * (height - padding.top - padding.bottom);
+  const svg = svgElement("svg", { viewBox: `0 0 ${width} ${height}`, role: "img" });
+  svg.append(svgElement("line", { x1: padding.left, y1: height - padding.bottom, x2: width - padding.right, y2: height - padding.bottom, class: "chart-axis" }));
+  svg.append(svgElement("line", { x1: padding.left, y1: padding.top, x2: padding.left, y2: height - padding.bottom, class: "chart-axis" }));
+  const colors = ["#7ce5b2", "#79a9ff", "#f3ca78", "#dd8cff", "#ff8c84", "#91d7e3"];
+  chart.series.forEach((series, index) => {
+    const points = series.points.filter((point) => !logScale || point.y > 0);
+    if (!points.length) return;
+    const color = colors[index % colors.length];
+    if (chart.spec.uncertainty !== "none") {
+      const upper = points.map((point) => `${sx(point.x)},${sy(Math.max(point.upper, logScale ? 1e-300 : -Infinity))}`);
+      const lower = [...points].reverse().map((point) => `${sx(point.x)},${sy(Math.max(point.lower, logScale ? 1e-300 : -Infinity))}`);
+      svg.append(svgElement("polygon", { points: [...upper, ...lower].join(" "), fill: color, opacity: 0.13 }));
+    }
+    const path = points.map((point, pointIndex) => `${pointIndex ? "L" : "M"}${sx(point.x)} ${sy(point.y)}`).join(" ");
+    svg.append(svgElement("path", { d: path, fill: "none", stroke: color, "stroke-width": 2 }));
+    const label = svgElement("text", { x: width - padding.right - 8, y: padding.top + 16 * index, fill: color, "text-anchor": "end", class: "chart-label" });
+    label.textContent = series.name;
+    svg.append(label);
+  });
+  const title = svgElement("text", { x: padding.left, y: 19, class: "chart-title" });
+  title.textContent = chart.spec.title || chart.spec.y_label || "metric";
+  svg.append(title);
+  host.append(svg);
+}
+
+async function previewChart() {
+  elements["analytics-error"].textContent = "";
+  try {
+    const result = await api("/api/analytics/chart", {
+      method: "POST",
+      body: JSON.stringify(chartSpec()),
+    });
+    renderChart(result.chart);
+  } catch (error) {
+    elements["analytics-error"].textContent = error.message || String(error);
+  }
+}
+
+function tableSpec() {
+  const metric = elements["table-metric"].value;
+  if (!metric) throw new Error("No indexed metric is selected");
+  const stage = elements["table-stage"].value;
+  return {
+    name: elements["table-name"].value.trim() || "table",
+    artifact_root: elements["analytics-root"].value.trim() || "runs",
+    filters: { metrics: [metric], stages: stage ? [stage] : [], kinds: ["final"] },
+    row: elements["table-row"].value,
+    column: elements["table-column"].value,
+    aggregate: "mean_std",
+    precision: Number(elements["table-precision"].value),
+    direction: elements["table-direction"].value,
+    bold_best: true,
+    underline_second: false,
+    caption: elements["table-caption"].value.trim() || null,
+    label: elements["table-label"].value.trim() || null,
+    missing: "--",
+    max_rows: Number(elements["table-rows"].value),
+    max_columns: Number(elements["table-columns"].value),
+  };
+}
+
+async function previewTable() {
+  elements["analytics-error"].textContent = "";
+  try {
+    const result = await api("/api/analytics/table", {
+      method: "POST",
+      body: JSON.stringify(tableSpec()),
+    });
+    const limitNote = result.table.truncated
+      ? `% Showing ${result.table.rows.length}/${result.table.row_total} rows and ` +
+        `${result.table.columns.length}/${result.table.column_total} columns.\n`
+      : "";
+    elements["table-preview"].textContent = limitNote + result.latex;
+  } catch (error) {
+    elements["analytics-error"].textContent = error.message || String(error);
+  }
+}
+
+async function reloadWorkspaceFiles() {
+  state.bootstrap = await api("/api/bootstrap");
+  state.files = state.bootstrap.files;
+  renderFiles();
+}
+
+async function exportReport(kind) {
+  elements["analytics-error"].textContent = "";
+  try {
+    const payload = kind === "chart" ? { spec: chartSpec(), formats: ["svg", "pdf"] } : { spec: tableSpec() };
+    const result = await api(`/api/analytics/${kind}/export`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    await reloadWorkspaceFiles();
+    setOutput("Report exported", result.path, "success");
+  } catch (error) {
+    elements["analytics-error"].textContent = error.message || String(error);
+  }
+}
+
 function installEvents() {
   elements["file-filter"].addEventListener("input", renderFiles);
   elements["component-filter"].addEventListener("input", renderRegistry);
@@ -719,6 +966,7 @@ function installEvents() {
   elements["validate-button"].addEventListener("click", validateActive);
   elements["new-file-button"].addEventListener("click", openNewFile);
   elements["new-config-button"].addEventListener("click", openConfigCreator);
+  elements["analytics-button"].addEventListener("click", openAnalytics);
   elements["empty-create-button"].addEventListener("click", openConfigCreator);
   elements["clear-output"].addEventListener("click", () => setOutput("Ready", ""));
   elements["close-config-dialog"].addEventListener("click", closeConfigCreator);
@@ -728,6 +976,21 @@ function installEvents() {
   elements["config-dialog"].addEventListener("click", (event) => {
     if (event.target === elements["config-dialog"]) closeConfigCreator();
   });
+  elements["close-analytics-dialog"].addEventListener("click", () => elements["analytics-dialog"].close());
+  elements["analytics-dialog"].addEventListener("click", (event) => {
+    if (event.target === elements["analytics-dialog"]) elements["analytics-dialog"].close();
+  });
+  elements["refresh-analytics"].addEventListener("click", async () => {
+    try {
+      await refreshAnalytics(false);
+    } catch (error) {
+      elements["analytics-error"].textContent = error.message || String(error);
+    }
+  });
+  elements["preview-chart"].addEventListener("click", previewChart);
+  elements["export-chart"].addEventListener("click", () => exportReport("chart"));
+  elements["preview-table"].addEventListener("click", previewTable);
+  elements["export-table"].addEventListener("click", () => exportReport("table"));
   window.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();

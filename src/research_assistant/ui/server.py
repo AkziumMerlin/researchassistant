@@ -3,17 +3,25 @@ from __future__ import annotations
 import sys
 import threading
 import webbrowser
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from research_assistant.analytics import (
+    ChartSpec,
+    MetricIndex,
+    TableSpec,
+    bounded_artifact_root,
+)
 from research_assistant.config import dump_config, load_config_text
 from research_assistant.config_creator import assemble_config
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.planning import Plan, compile_plan
 from research_assistant.plugins import load_registry
 from research_assistant.registry import Registry
+from research_assistant.reporting import render_latex_table, write_chart_bundle, write_table_bundle
 from research_assistant.ui.workspace import Workspace, WorkspaceConflict, WorkspaceError
 
 
@@ -56,6 +64,20 @@ class ConfigCreateRequest(UiModel):
     devices: int = Field(default=1, ge=1)
     memory_gb: float | None = Field(default=None, gt=0)
     artifact_root: str = "runs"
+
+
+class AnalyticsRootRequest(UiModel):
+    artifact_root: str = "runs"
+    rebuild: bool = False
+
+
+class ChartExportRequest(UiModel):
+    spec: ChartSpec
+    formats: list[Literal["svg", "pdf", "png"]] = Field(default_factory=lambda: ["svg", "pdf"])
+
+
+class TableExportRequest(UiModel):
+    spec: TableSpec
 
 
 def _plan_summary(plan: Plan) -> dict[str, Any]:
@@ -112,15 +134,23 @@ def create_app(root: str | Path, plugins: list[str] | None = None):
     if not index_path.is_file():
         raise ResearchAssistantError("the bundled UI assets are missing from this installation")
 
+    @asynccontextmanager
+    async def lifespan(application):
+        yield
+        for index in application.state.metric_indices.values():
+            index.close()
+
     app = FastAPI(
         title="ResearchAssistant UI",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        lifespan=lifespan,
     )
     app.state.workspace = workspace
     app.state.registry = registry
     app.state.plugins = server_plugins
+    app.state.metric_indices = {}
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
@@ -233,6 +263,61 @@ def create_app(root: str | Path, plugins: list[str] | None = None):
             "content": dump_config(config, compact=True),
             "plan": _plan_summary(plan),
         }
+
+    def analytics_index(artifact_root: str) -> MetricIndex:
+        root_path = bounded_artifact_root(workspace.root, artifact_root)
+        key = str(root_path)
+        index = app.state.metric_indices.get(key)
+        if index is None:
+            index = MetricIndex(root_path)
+            app.state.metric_indices[key] = index
+        return index
+
+    def report_destination(name: str) -> Path:
+        allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
+        if name in {"", ".", ".."} or any(character not in allowed for character in name):
+            raise WorkspaceError(
+                "report names may contain only letters, digits, dot, dash, underscore"
+            )
+        destination = (workspace.root / "reports" / name).resolve()
+        if not destination.is_relative_to(workspace.root):
+            raise WorkspaceError("report destination escapes workspace")
+        return destination
+
+    @app.post("/api/analytics/catalog")
+    def analytics_catalog(payload: AnalyticsRootRequest) -> dict[str, Any]:
+        index = analytics_index(payload.artifact_root)
+        refresh = index.rebuild() if payload.rebuild else index.refresh()
+        return {"refresh": refresh, "catalog": index.catalog()}
+
+    @app.post("/api/analytics/chart")
+    def analytics_chart(spec: ChartSpec) -> dict[str, Any]:
+        index = analytics_index(spec.artifact_root)
+        refresh = index.refresh()
+        return {"refresh": refresh, "chart": index.chart(spec)}
+
+    @app.post("/api/analytics/table")
+    def analytics_table(spec: TableSpec) -> dict[str, Any]:
+        index = analytics_index(spec.artifact_root)
+        refresh = index.refresh()
+        table = index.table(spec)
+        return {"refresh": refresh, "table": table, "latex": render_latex_table(table, spec)}
+
+    @app.post("/api/analytics/chart/export")
+    def analytics_chart_export(payload: ChartExportRequest) -> dict[str, Any]:
+        index = analytics_index(payload.spec.artifact_root)
+        index.refresh()
+        destination = report_destination(payload.spec.name)
+        write_chart_bundle(index, payload.spec, destination, formats=tuple(payload.formats))
+        return {"path": destination.relative_to(workspace.root).as_posix()}
+
+    @app.post("/api/analytics/table/export")
+    def analytics_table_export(payload: TableExportRequest) -> dict[str, Any]:
+        index = analytics_index(payload.spec.artifact_root)
+        index.refresh()
+        destination = report_destination(payload.spec.name)
+        write_table_bundle(index, payload.spec, destination)
+        return {"path": destination.relative_to(workspace.root).as_posix()}
 
     @app.get("/")
     def index():

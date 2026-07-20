@@ -8,6 +8,7 @@ from typing import Any
 
 from research_assistant.artifacts import RunStore, utc_now
 from research_assistant.errors import ExecutionError
+from research_assistant.metrics import StepKind
 from research_assistant.models import ComponentRef, StageConfig
 from research_assistant.planning import RunManifest, topological_stages
 from research_assistant.registry import Registry
@@ -44,12 +45,26 @@ class StageContext:
             self._component_cache[kind] = self.registry.invoke(kind, reference, self)
         return self._component_cache[kind]
 
-    def log_metrics(self, metrics: Mapping[str, float], *, step: int | float | None = None) -> None:
+    def log_metrics(
+        self,
+        metrics: Mapping[str, float],
+        *,
+        step: int | float | None = None,
+        step_kind: StepKind = "epoch",
+        dimensions: Mapping[str, Any] | None = None,
+    ) -> None:
         """Append progress metrics while a long-running stage is still active."""
         if self._metric_logger is None:
             raise ExecutionError("metric logging is unavailable in this stage context")
         normalized = {str(key): float(value) for key, value in metrics.items()}
-        self._metric_logger(self.stage.name, normalized, step=step, kind="progress")
+        self._metric_logger(
+            self.stage.name,
+            normalized,
+            step=step,
+            kind="progress",
+            step_kind=step_kind,
+            dimensions=dict(dimensions or {}),
+        )
 
     def artifact(self, stage: str, name: str) -> Path:
         """Resolve a named artifact published by a completed dependency stage."""
@@ -114,14 +129,19 @@ def execute_run(
 
     if status["state"] == "completed":
         if resume:
+            store.close()
             return status
+        store.close()
         raise ExecutionError(f"run {manifest.run_id} is already completed")
 
     if not resume and status["state"] != "pending":
+        store.close()
         raise ExecutionError(
             f"run {manifest.run_id} already has state {status['state']!r}; use --resume"
         )
 
+    status["attempt"] = int(status.get("attempt", 0)) + 1
+    store.begin_attempt(status["attempt"])
     status["state"] = "running"
     status.setdefault("started_at", utc_now())
     store.save_status(status)
@@ -195,6 +215,7 @@ def execute_run(
         status["error"] = f"{type(exc).__name__}: {exc}"
         status["traceback"] = traceback.format_exc()
         store.save_status(status)
+        store.close()
         raise
 
     status["state"] = "completed"
@@ -202,4 +223,5 @@ def execute_run(
     status.pop("error", None)
     status.pop("traceback", None)
     store.save_status(status)
+    store.close()
     return status

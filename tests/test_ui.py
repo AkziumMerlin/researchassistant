@@ -5,6 +5,10 @@ import pytest
 from typer.testing import CliRunner
 
 from research_assistant.cli import app as cli_app
+from research_assistant.config import parse_config
+from research_assistant.execution import execute_run
+from research_assistant.planning import compile_plan
+from research_assistant.plugins import load_registry
 from research_assistant.ui.workspace import Workspace, WorkspaceConflict, WorkspaceError
 
 fastapi = pytest.importorskip("fastapi")
@@ -156,3 +160,53 @@ def test_ui_cli_refuses_remote_binding(tmp_path: Path) -> None:
 
     assert result.exit_code == 2
     assert "only binds to localhost" in result.output
+
+
+def test_ui_analytics_catalog_chart_table_and_export(tmp_path: Path) -> None:
+    config = parse_config(
+        {
+            "version": 1,
+            "experiment": {"name": "ui-report"},
+            "seed": 0,
+            "matrix": {"seed": [0, 1]},
+            "stages": [
+                {
+                    "name": "test",
+                    "type": "core/noop",
+                    "params": {"metrics": {"test/error": 0.1}},
+                }
+            ],
+        }
+    )
+    registry = load_registry()
+    for manifest in compile_plan(config, registry).runs:
+        execute_run(manifest, registry, artifact_root=tmp_path / "runs")
+    client = TestClient(create_app(tmp_path))
+
+    catalog = client.post("/api/analytics/catalog", json={"artifact_root": "runs"})
+    assert catalog.status_code == 200, catalog.text
+    assert catalog.json()["catalog"]["event_count"] == 2
+
+    chart_spec = {
+        "name": "curves",
+        "artifact_root": "runs",
+        "filters": {"metrics": ["test/error"], "kinds": ["final"]},
+        "group_by": "trial_id",
+    }
+    chart = client.post("/api/analytics/chart", json=chart_spec)
+    assert chart.status_code == 200, chart.text
+    assert chart.json()["chart"]["series"][0]["points"][0]["n"] == 2
+
+    table_spec = {
+        "name": "benchmark",
+        "artifact_root": "runs",
+        "filters": {"metrics": ["test/error"], "kinds": ["final"]},
+        "row": "study_id",
+        "column": "trial_id",
+    }
+    table = client.post("/api/analytics/table", json=table_spec)
+    assert table.status_code == 200, table.text
+    assert "\\begin{tabular}" in table.json()["latex"]
+    exported = client.post("/api/analytics/table/export", json={"spec": table_spec})
+    assert exported.status_code == 200, exported.text
+    assert (tmp_path / exported.json()["path"] / "table.tex").is_file()

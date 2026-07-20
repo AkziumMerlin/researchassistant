@@ -67,3 +67,31 @@ def test_artifact_root_does_not_change_run_identity() -> None:
 
     assert left_run.run_id == right_run.run_id
     assert left_run.trial_id == right_run.trial_id
+
+
+def test_logging_sink_does_not_change_run_identity() -> None:
+    base = {
+        "version": 1,
+        "experiment": {"name": "identity"},
+        "seed": 4,
+        "stages": [{"name": "fit", "type": "core/noop"}],
+    }
+    plain = parse_config(base)
+    tensorboard = parse_config(
+        {
+            **base,
+            "logging": {
+                "tensorboard": {
+                    "enabled": True,
+                    "directory": "tensorboard",
+                    "flush_seconds": 10,
+                }
+            },
+        }
+    )
+
+    plain_run = compile_plan(plain, make_registry()).runs[0]
+    tensorboard_run = compile_plan(tensorboard, make_registry()).runs[0]
+
+    assert plain_run.run_id == tensorboard_run.run_id
+    assert plain_run.trial_id == tensorboard_run.trial_id

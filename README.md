@@ -31,6 +31,8 @@ training framework. Projects add those concepts as namespaced components.
 - per-attempt compute telemetry and trial-aware historical memory estimates;
 - an interactive schema-driven config creator built from registered components;
 - a bundled Monaco workbench for editing files and visually creating/validating configs;
+- an incremental SQLite metric index with UI chart and LaTeX-table builders;
+- reproducible chart/table bundles with data and run provenance;
 - seed-aware mean and standard-deviation reports;
 - a compact Linux CLI.
 
@@ -55,6 +57,12 @@ For the local browser UI:
 
 ```bash
 pip install -e '.[dev,ui]'
+```
+
+For server-side PDF/SVG/PNG figure export:
+
+```bash
+pip install -e '.[dev,ui,reports]'
 ```
 
 ## Five-minute example
@@ -84,8 +92,9 @@ ra ui . --plugin my_project.plugin
 ```
 
 The workbench provides a project explorer, Monaco file editor with tabs and `Ctrl+S`, the live
-component registry, a visual schema-driven config creator, and unsaved-config validation with a run
-plan preview. It is self-contained and does not fetch editor code from a CDN.
+component registry, a visual schema-driven config creator, unsaved-config validation, and indexed
+chart/LaTeX-table builders. Chart queries are aggregated on the server rather than transferring
+complete metric histories to the browser.
 
 For shared servers, keep the localhost binding and forward the port over SSH:
 
@@ -333,6 +342,17 @@ directory if its manifest does not match the compiled run.
 Long-running stages can call `context.log_metrics(metrics, step=epoch)`. A fit stage publishes
 checkpoints through `StageResult.artifacts`; dependent stages resolve them with
 `context.artifact("fit", "best")`. Artifact paths must remain inside the run directory.
+
+Metric events are versioned and append-only. Index them incrementally and generate reports with:
+
+```bash
+ra report index runs
+ra report chart reports/specs/learning-curves.yaml
+ra report table reports/specs/benchmark-table.yaml
+```
+
+See [docs/reporting.md](docs/reporting.md) for event dimensions, scalable indexing, report specs,
+TensorBoard compatibility, and report-bundle provenance.
 
 ## Design boundaries
 

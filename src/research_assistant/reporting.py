@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import csv
 import json
+import re
 import statistics
 from collections import defaultdict
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import yaml
+
+from research_assistant.analytics import ChartSpec, MetricIndex, TableSpec
+from research_assistant.artifacts import atomic_write_json
+from research_assistant.errors import ResearchAssistantError
 
 
 def collect_summary(
@@ -139,3 +148,170 @@ def collect_resource_summary(
             }
         )
     return rows
+
+
+def _latex_escape(value: str) -> str:
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    return "".join(replacements.get(character, character) for character in value)
+
+
+def _number(value: float, precision: int) -> str:
+    return f"{float(value):.{precision}g}"
+
+
+def render_latex_table(data: dict[str, Any], spec: TableSpec) -> str:
+    cells = {
+        (str(cell["row_name"]), str(cell["column_name"])): cell for cell in data["cells"]
+    }
+    ranks: dict[tuple[str, str], int] = {}
+    if spec.direction != "none":
+        for row_name in data["rows"]:
+            observations = [
+                (column, float(cells[(row_name, column)]["mean"]))
+                for column in data["columns"]
+                if (row_name, column) in cells
+            ]
+            observations.sort(key=lambda item: item[1], reverse=spec.direction == "maximize")
+            distinct: list[float] = []
+            for _, value in observations:
+                if value not in distinct:
+                    distinct.append(value)
+            for column, value in observations:
+                ranks[(row_name, column)] = distinct.index(value) + 1
+
+    alignment = "l" + "c" * len(data["columns"])
+    lines: list[str] = []
+    if spec.caption or spec.label:
+        lines.append(r"\begin{table}[!ht]")
+        lines.append(r"\centering")
+    if spec.caption:
+        lines.append(rf"\caption{{{_latex_escape(spec.caption)}}}")
+    if spec.label:
+        if not re.fullmatch(r"[A-Za-z0-9:._-]+", spec.label):
+            raise ResearchAssistantError("LaTeX labels may contain only letters, digits, : . _ -")
+        lines.append(rf"\label{{{spec.label}}}")
+    lines.extend([rf"\begin{{tabular}}{{{alignment}}}", r"\toprule"])
+    header = [spec.row, *[_latex_escape(column) for column in data["columns"]]]
+    lines.append(" & ".join(header) + r" \\")
+    lines.append(r"\midrule")
+    for row_name in data["rows"]:
+        rendered = [_latex_escape(row_name)]
+        for column in data["columns"]:
+            cell = cells.get((row_name, column))
+            if cell is None:
+                rendered.append(_latex_escape(spec.missing))
+                continue
+            primary = {
+                "mean_std": cell["mean"],
+                "mean": cell["mean"],
+                "min": cell["minimum"],
+                "max": cell["maximum"],
+            }[spec.aggregate]
+            if spec.aggregate == "mean_std":
+                content = (
+                    rf"{_number(primary, spec.precision)} \pm "
+                    rf"{_number(cell['std'], spec.precision)}"
+                )
+            else:
+                content = _number(primary, spec.precision)
+            rank = ranks.get((row_name, column))
+            if spec.bold_best and rank == 1:
+                content = rf"\mathbf{{{content}}}"
+            math_cell = f"${content}$"
+            if spec.underline_second and rank == 2:
+                math_cell = rf"\underline{{{math_cell}}}"
+            rendered.append(math_cell)
+        lines.append(" & ".join(rendered) + r" \\")
+    lines.extend([r"\bottomrule", r"\end{tabular}"])
+    if spec.caption or spec.label:
+        lines.append(r"\end{table}")
+    return "\n".join(lines) + "\n"
+
+
+def _provenance(index: MetricIndex, filters, *, kind: str) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "generated_at": datetime.now(UTC).isoformat(),
+        "kind": kind,
+        "artifact_root": str(index.root),
+        "database": str(index.database),
+        "run_ids": index.selected_run_ids(filters),
+    }
+
+
+def write_table_bundle(index: MetricIndex, spec: TableSpec, output: str | Path) -> Path:
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    data = index.table(spec)
+    (output / "spec.yaml").write_text(
+        yaml.safe_dump(spec.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
+    )
+    atomic_write_json(output / "data.json", data)
+    atomic_write_json(output / "provenance.json", _provenance(index, spec.filters, kind="table"))
+    (output / "table.tex").write_text(render_latex_table(data, spec), encoding="utf-8")
+    with (output / "data.csv").open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(
+            stream,
+            fieldnames=["row_name", "column_name", "n", "mean", "std", "minimum", "maximum"],
+        )
+        writer.writeheader()
+        writer.writerows(data["cells"])
+    return output
+
+
+def write_chart_bundle(
+    index: MetricIndex,
+    spec: ChartSpec,
+    output: str | Path,
+    *,
+    formats: tuple[str, ...] = ("svg", "pdf", "png"),
+) -> Path:
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    data = index.chart(spec)
+    (output / "spec.yaml").write_text(
+        yaml.safe_dump(spec.model_dump(mode="json"), sort_keys=False), encoding="utf-8"
+    )
+    atomic_write_json(output / "data.json", data)
+    atomic_write_json(output / "provenance.json", _provenance(index, spec.filters, kind="chart"))
+    if formats:
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError as exc:
+            raise ResearchAssistantError(
+                "figure export requires research-assistant[reports]"
+            ) from exc
+        figure, axes = plt.subplots(figsize=(6.4, 4.0), constrained_layout=True)
+        for series in data["series"]:
+            x = [point["x"] for point in series["points"]]
+            y = [point["y"] for point in series["points"]]
+            lower = [point["lower"] for point in series["points"]]
+            upper = [point["upper"] for point in series["points"]]
+            line = axes.plot(x, y, label=series["name"])[0]
+            if spec.uncertainty != "none":
+                axes.fill_between(x, lower, upper, color=line.get_color(), alpha=0.18, linewidth=0)
+        axes.set_xlabel(spec.x_label)
+        axes.set_ylabel(spec.y_label or ", ".join(spec.filters.metrics) or "value")
+        axes.set_yscale(spec.y_scale)
+        if spec.title:
+            axes.set_title(spec.title)
+        if data["series"]:
+            axes.legend(frameon=False)
+        axes.grid(alpha=0.2)
+        for file_format in formats:
+            if file_format not in {"svg", "pdf", "png"}:
+                raise ResearchAssistantError(f"unsupported chart format: {file_format}")
+            figure.savefig(output / f"chart.{file_format}", dpi=180)
+        plt.close(figure)
+    return output

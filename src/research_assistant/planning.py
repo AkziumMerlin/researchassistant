@@ -103,6 +103,7 @@ def compile_plan(config: ExperimentConfig, registry: Registry) -> Plan:
 
         run_payload = resolved.model_dump(mode="json", exclude_none=True)
         run_payload.pop("artifacts", None)
+        run_payload.pop("logging", None)
         trial_payload = copy.deepcopy(run_payload)
         trial_payload.pop("seed", None)
         trial_id = _canonical_hash(trial_payload, length=10)

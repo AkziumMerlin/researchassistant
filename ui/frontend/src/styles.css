@@ -598,7 +598,8 @@ kbd {
   box-shadow: 0 0 7px #38c98588;
 }
 
-.config-dialog {
+.config-dialog,
+.analytics-dialog {
   width: min(980px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
   padding: 0;
@@ -610,7 +611,8 @@ kbd {
   box-shadow: 0 30px 100px #000a;
 }
 
-.config-dialog::backdrop {
+.config-dialog::backdrop,
+.analytics-dialog::backdrop {
   background: #050807cc;
   backdrop-filter: blur(3px);
 }
@@ -754,6 +756,139 @@ kbd {
   gap: 8px;
   padding: 13px 18px;
   border-top: 1px solid var(--border);
+}
+
+.analytics-dialog {
+  width: min(1380px, calc(100vw - 40px));
+  height: min(860px, calc(100vh - 40px));
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-bright);
+  border-radius: 12px;
+  color: var(--text);
+  background: var(--surface);
+  box-shadow: 0 30px 100px #000a;
+}
+
+.analytics-toolbar {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  background: #0e1412;
+}
+
+.analytics-toolbar .field {
+  width: 240px;
+}
+
+.analytics-summary {
+  margin-left: auto;
+  padding-bottom: 8px;
+  color: var(--muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+}
+
+.analytics-grid {
+  display: grid;
+  height: calc(100% - 171px);
+  grid-template-columns: minmax(0, 1.15fr) minmax(420px, 0.85fr);
+  gap: 1px;
+  overflow: hidden;
+  background: var(--border);
+}
+
+.analytics-builder {
+  min-width: 0;
+  overflow: auto;
+  padding: 16px 18px;
+  background: var(--surface);
+}
+
+.analytics-builder h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.analytics-fields {
+  margin-top: 13px;
+}
+
+.analytics-actions {
+  display: flex;
+  gap: 8px;
+  margin: 13px 0;
+}
+
+.chart-preview,
+.table-preview {
+  min-height: 330px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0c1110;
+}
+
+.chart-preview {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.chart-preview svg {
+  width: 100%;
+  height: auto;
+}
+
+.chart-limit-note {
+  width: 100%;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  color: #f3ca78;
+  background: #171912;
+  text-align: left;
+}
+
+.chart-axis {
+  stroke: #52645e;
+  stroke-width: 1;
+}
+
+.chart-label {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 9px;
+}
+
+.chart-title {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.table-preview {
+  max-height: 390px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: #a9bbb4;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+@media (max-width: 980px) {
+  .analytics-grid {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .analytics-builder {
+    overflow: visible;
+  }
 }
 
 @media (max-width: 1100px) {

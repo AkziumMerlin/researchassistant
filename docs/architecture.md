@@ -120,7 +120,8 @@ separately installable adapter.
 
 - execution is local; the subprocess launcher parallelizes independent runs on one host;
 - the reusable PyTorch stages are single-device and intentionally leave task semantics in recipes;
-- there is no SQLite index yet; the current report command scans self-describing run directories;
+- metric JSONL files remain authoritative while a rebuildable SQLite/WAL index incrementally
+  consumes only appended tails for interactive queries;
 - interrupted Python processes are recognized on the next invocation only through persisted
   stage state;
 - config inheritance intentionally supports a small `extends` mechanism instead of adopting
@@ -131,7 +132,7 @@ separately installable adapter.
 ## Next milestones
 
 1. Add worker adoption after scheduler restart and MIG-aware placement.
-2. Add an event index and seed-aware reports based on manifests, never path parsing.
+2. Add background filesystem notifications on top of the existing incremental event index.
 3. Migrate one KNO protocol as an external acceptance-test plugin.
 4. Add Slurm and tracking sinks behind plugin contracts.
 
