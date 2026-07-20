@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from research_assistant.analytics import ChartSpec, MetricFilter, MetricIndex, TableSpec
 from research_assistant.config import parse_config
 from research_assistant.execution import execute_run
@@ -103,6 +105,7 @@ def test_index_waits_for_complete_jsonl_line(tmp_path: Path) -> None:
 
 
 def test_chart_bundle_renders_vector_and_document_formats(tmp_path: Path) -> None:
+    pytest.importorskip("matplotlib")
     completed_runs(tmp_path)
     index = MetricIndex(tmp_path)
     try:

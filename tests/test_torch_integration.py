@@ -117,7 +117,9 @@ def test_fit_and_evaluate_publish_checkpoint(tmp_path: Path) -> None:
         json.loads(line)
         for line in (run_dir / "metrics.jsonl").read_text(encoding="utf-8").splitlines()
     ]
-    assert [event["kind"] for event in events].count("progress") == 4
+    progress = [event for event in events if event["kind"] == "progress"]
+    assert {event["step"] for event in progress} == {0, 1, 2, 3}
+    assert all(event["metric"] and event["schema_version"] == 1 for event in progress)
 
 
 def test_fit_resumes_from_last_completed_epoch(tmp_path: Path) -> None:
