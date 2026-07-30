@@ -21,6 +21,7 @@
         <div class="topbar-actions">
           <button id="new-file-button" class="button ghost" type="button">New file</button>
           <button id="new-config-button" class="button ghost" type="button">New config</button>
+          <button id="experiments-button" class="button ghost" type="button">Launch</button>
           <button id="analytics-button" class="button ghost" type="button">Reports</button>
           <button id="validate-button" class="button ghost" type="button" disabled>Validate</button>
           <button id="save-button" class="button primary" type="button" disabled>Save</button>
@@ -171,6 +172,70 @@
           <button class="button primary" type="submit">Build and open</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="experiments-dialog" class="experiments-dialog">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">DETACHED SCHEDULER</span>
+          <h2>Launch and monitor experiments</h2>
+        </div>
+        <button id="close-experiments-dialog" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+
+      <div id="remote-session-note" class="remote-session-note">
+        <span class="status-dot"></span>
+        <span>Localhost-only session. Launches persist if this browser disconnects.</span>
+      </div>
+
+      <div class="experiments-grid">
+        <section class="launch-builder">
+          <div class="section-heading">
+            <h3>New launch</h3>
+            <span>validated config only</span>
+          </div>
+          <form id="launch-form">
+            <label class="field wide">
+              <span>Experiment config</span>
+              <select id="launch-config" required></select>
+            </label>
+            <label class="field wide">
+              <span>Launcher policy</span>
+              <select id="launch-policy"></select>
+            </label>
+            <div class="field-grid">
+              <label class="field">
+                <span>Artifact root</span>
+                <input id="launch-artifacts" value="runs" required />
+              </label>
+              <label class="checkbox-field">
+                <input id="launch-resume" type="checkbox" checked />
+                <span>Resume compatible runs</span>
+              </label>
+            </div>
+            <div id="launch-plan-preview" class="launch-plan-preview">
+              Select a saved YAML experiment to compile its plan.
+            </div>
+            <div id="launch-error" class="form-error" role="alert"></div>
+            <button id="launch-submit" class="button primary launch-submit" type="submit">
+              Start detached launch
+            </button>
+          </form>
+        </section>
+
+        <section class="launch-monitor">
+          <div class="section-heading">
+            <h3>Launch history</h3>
+            <button id="refresh-launches" class="button compact ghost" type="button">Refresh</button>
+          </div>
+          <div class="launch-monitor-grid">
+            <div id="launch-list" class="launch-list"></div>
+            <div id="launch-detail" class="launch-detail">
+              <div class="launch-detail-empty">Select a launch to inspect its runs and scheduler log.</div>
+            </div>
+          </div>
+        </section>
+      </div>
     </dialog>
 
     <dialog id="analytics-dialog" class="analytics-dialog">

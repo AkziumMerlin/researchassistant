@@ -38,6 +38,11 @@ const state = {
   files: [],
   stageCounter: 0,
   analyticsCatalog: null,
+  launches: [],
+  selectedLaunchId: null,
+  selectedRunId: null,
+  launchPollTimer: null,
+  launchRefreshPending: false,
 };
 
 const elements = Object.fromEntries(
@@ -58,6 +63,7 @@ const elements = Object.fromEntries(
     "clear-output",
     "new-file-button",
     "new-config-button",
+    "experiments-button",
     "analytics-button",
     "empty-create-button",
     "validate-button",
@@ -82,6 +88,20 @@ const elements = Object.fromEntries(
     "creator-artifacts",
     "creator-error",
     "add-stage-button",
+    "experiments-dialog",
+    "close-experiments-dialog",
+    "remote-session-note",
+    "launch-form",
+    "launch-config",
+    "launch-policy",
+    "launch-artifacts",
+    "launch-resume",
+    "launch-plan-preview",
+    "launch-error",
+    "launch-submit",
+    "refresh-launches",
+    "launch-list",
+    "launch-detail",
     "analytics-dialog",
     "close-analytics-dialog",
     "analytics-root",
@@ -747,6 +767,381 @@ async function submitCreator(event) {
   }
 }
 
+function savedYamlPaths() {
+  return state.files
+    .filter((entry) => entry.kind === "file" && /\.ya?ml$/i.test(entry.path))
+    .map((entry) => entry.path)
+    .sort((left, right) => left.localeCompare(right));
+}
+
+function fillLaunchSelectors() {
+  const yamlPaths = savedYamlPaths();
+  const previousConfig = elements["launch-config"].value;
+  const activeSavedConfig =
+    state.activePath &&
+    isConfigPath(state.activePath) &&
+    !state.buffers.get(state.activePath)?.isNew
+      ? state.activePath
+      : null;
+  elements["launch-config"].replaceChildren();
+  for (const path of yamlPaths) {
+    const option = document.createElement("option");
+    option.value = path;
+    option.textContent = path;
+    elements["launch-config"].append(option);
+  }
+  const preferredConfig = activeSavedConfig || previousConfig;
+  if ([...elements["launch-config"].options].some((option) => option.value === preferredConfig)) {
+    elements["launch-config"].value = preferredConfig;
+  }
+
+  const previousPolicy = elements["launch-policy"].value;
+  elements["launch-policy"].replaceChildren();
+  const automatic = document.createElement("option");
+  automatic.value = "";
+  automatic.textContent = "Built-in local subprocess policy";
+  elements["launch-policy"].append(automatic);
+  for (const path of yamlPaths) {
+    const option = document.createElement("option");
+    option.value = path;
+    option.textContent = path;
+    elements["launch-policy"].append(option);
+  }
+  if ([...elements["launch-policy"].options].some((option) => option.value === previousPolicy)) {
+    elements["launch-policy"].value = previousPolicy;
+  }
+}
+
+function activeConfigIsDirty(path) {
+  const buffer = state.buffers.get(path);
+  return Boolean(buffer && (buffer.isNew || bufferDirty(buffer)));
+}
+
+async function previewLaunchPlan() {
+  const path = elements["launch-config"].value;
+  elements["launch-error"].textContent = "";
+  if (!path) {
+    elements["launch-plan-preview"].textContent = "No saved YAML experiment is available.";
+    elements["launch-submit"].disabled = true;
+    return;
+  }
+  if (activeConfigIsDirty(path)) {
+    elements["launch-plan-preview"].textContent =
+      "This config has unsaved changes. Save it before launching.";
+    elements["launch-submit"].disabled = true;
+    return;
+  }
+  elements["launch-plan-preview"].textContent = `Compiling ${path}…`;
+  elements["launch-submit"].disabled = true;
+  try {
+    const file = await api(`/api/files?path=${encodeURIComponent(path)}`);
+    const result = await api("/api/config/validate", {
+      method: "POST",
+      body: JSON.stringify({ path, content: file.content }),
+    });
+    const plan = result.plan;
+    elements["launch-plan-preview"].textContent =
+      `${result.experiment} · ${plan.runs} run(s) · ${plan.trials} trial(s)\n` +
+      `study ${plan.study_id}`;
+    elements["launch-submit"].disabled = false;
+  } catch (error) {
+    elements["launch-plan-preview"].textContent = "The selected file is not launchable.";
+    elements["launch-error"].textContent = error.message || String(error);
+  }
+}
+
+function launchStateLabel(stateName) {
+  return {
+    queued: "queued",
+    running: "running",
+    completed: "completed",
+    failed: "failed",
+    orphaned: "scheduler lost",
+  }[stateName] || stateName;
+}
+
+function formatTimestamp(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+}
+
+function renderLaunchList() {
+  const host = elements["launch-list"];
+  host.replaceChildren();
+  if (!state.launches.length) {
+    const empty = document.createElement("div");
+    empty.className = "launch-list-empty";
+    empty.textContent = "No launches yet.";
+    host.append(empty);
+    return;
+  }
+  for (const launch of state.launches) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = `launch-card ${launch.launch_id === state.selectedLaunchId ? "selected" : ""}`;
+    const top = document.createElement("span");
+    top.className = "launch-card-top";
+    const name = document.createElement("strong");
+    name.textContent = launch.config_path || launch.launch_id;
+    name.title = launch.launch_id;
+    const badge = document.createElement("span");
+    badge.className = `state-badge ${launch.state}`;
+    badge.textContent = launchStateLabel(launch.state);
+    top.append(name, badge);
+    const meta = document.createElement("span");
+    meta.className = "launch-card-meta";
+    const completed = launch.run_counts?.completed || 0;
+    const total = launch.plan?.runs || 0;
+    meta.textContent = `${completed}/${total} completed · ${formatTimestamp(launch.created_at)}`;
+    item.append(top, meta);
+    item.addEventListener("click", async () => {
+      state.selectedLaunchId = launch.launch_id;
+      state.selectedRunId = null;
+      renderLaunchList();
+      await refreshLaunchDetail();
+    });
+    host.append(item);
+  }
+}
+
+function launchProgress(detail) {
+  const total = detail.plan?.runs || 0;
+  const completed = detail.run_counts?.completed || 0;
+  const failed = detail.run_counts?.failed || 0;
+  return {
+    total,
+    completed,
+    failed,
+    percent: total ? Math.round(((completed + failed) / total) * 100) : 0,
+  };
+}
+
+function renderLaunchDetail(detail) {
+  state.selectedRunId = detail.selected_run_id || null;
+  const host = elements["launch-detail"];
+  host.replaceChildren();
+  const header = document.createElement("div");
+  header.className = "launch-detail-header";
+  const titleGroup = document.createElement("div");
+  const eyebrow = document.createElement("span");
+  eyebrow.className = "eyebrow";
+  eyebrow.textContent = detail.launch_id;
+  const title = document.createElement("h3");
+  title.textContent = detail.config_path || "Experiment launch";
+  titleGroup.append(eyebrow, title);
+  const badge = document.createElement("span");
+  badge.className = `state-badge ${detail.state}`;
+  badge.textContent = launchStateLabel(detail.state);
+  header.append(titleGroup, badge);
+
+  const progress = launchProgress(detail);
+  const progressBlock = document.createElement("div");
+  progressBlock.className = "launch-progress";
+  const progressMeta = document.createElement("div");
+  progressMeta.className = "launch-progress-meta";
+  progressMeta.textContent =
+    `${progress.completed} completed · ${progress.failed} failed · ${progress.total} total`;
+  const progressTrack = document.createElement("div");
+  progressTrack.className = "progress-track";
+  const progressValue = document.createElement("span");
+  progressValue.style.width = `${progress.percent}%`;
+  progressTrack.append(progressValue);
+  progressBlock.append(progressMeta, progressTrack);
+
+  const facts = document.createElement("div");
+  facts.className = "launch-facts";
+  const factValues = [
+    ["Artifacts", detail.artifact_root || "runs"],
+    ["Scheduler", detail.scheduler_alive ? `PID ${detail.scheduler_pid}` : "detached / finished"],
+    ["Started", formatTimestamp(detail.started_at || detail.created_at)],
+    ["Launcher", detail.launcher_path || "built-in"],
+  ];
+  for (const [label, value] of factValues) {
+    const fact = document.createElement("div");
+    const name = document.createElement("span");
+    name.textContent = label;
+    const content = document.createElement("strong");
+    content.textContent = value;
+    fact.append(name, content);
+    facts.append(fact);
+  }
+
+  const runsHeading = document.createElement("div");
+  runsHeading.className = "section-heading compact-heading";
+  const runsTitle = document.createElement("h3");
+  runsTitle.textContent = "Runs";
+  const runsCount = document.createElement("span");
+  runsCount.textContent = String(detail.runs?.length || 0);
+  runsHeading.append(runsTitle, runsCount);
+  const runs = document.createElement("div");
+  runs.className = "run-status-list";
+  for (const run of (detail.runs || []).slice(0, 500)) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className =
+      `run-status-row ${run.run_id === state.selectedRunId ? "selected" : ""}`;
+    const id = document.createElement("code");
+    id.textContent = run.run_id;
+    const device = document.createElement("span");
+    device.textContent = run.gpu
+      ? `GPU ${run.gpu.index}`
+      : run.state === "pending"
+        ? "pending"
+        : "CPU";
+    const runBadge = document.createElement("span");
+    runBadge.className = `state-badge ${run.state}`;
+    runBadge.textContent = run.state;
+    row.append(id, device, runBadge);
+    row.addEventListener("click", async () => {
+      state.selectedRunId = run.run_id;
+      await refreshLaunchDetail();
+    });
+    runs.append(row);
+  }
+  if ((detail.runs?.length || 0) > 500) {
+    const note = document.createElement("div");
+    note.className = "run-limit-note";
+    note.textContent = `Showing 500/${detail.runs.length} runs.`;
+    runs.append(note);
+  }
+
+  const workerLogHeading = document.createElement("div");
+  workerLogHeading.className = "section-heading compact-heading";
+  const workerLogTitle = document.createElement("h3");
+  workerLogTitle.textContent = "Worker log";
+  const workerLogState = document.createElement("span");
+  workerLogState.textContent = detail.selected_run_id || "no run";
+  workerLogHeading.append(workerLogTitle, workerLogState);
+  const workerLog = document.createElement("pre");
+  workerLog.className = "scheduler-log";
+  workerLog.textContent = detail.worker_log || "Waiting for worker output…";
+
+  const schedulerLogHeading = document.createElement("div");
+  schedulerLogHeading.className = "section-heading compact-heading";
+  const schedulerLogTitle = document.createElement("h3");
+  schedulerLogTitle.textContent = "Scheduler log";
+  const schedulerLogState = document.createElement("span");
+  schedulerLogState.textContent = "last 64 KiB";
+  schedulerLogHeading.append(schedulerLogTitle, schedulerLogState);
+  const schedulerLog = document.createElement("pre");
+  schedulerLog.className = "scheduler-log";
+  schedulerLog.textContent = detail.scheduler_log || "Waiting for scheduler output…";
+
+  host.append(
+    header,
+    progressBlock,
+    facts,
+    runsHeading,
+    runs,
+    workerLogHeading,
+    workerLog,
+    schedulerLogHeading,
+    schedulerLog,
+  );
+}
+
+async function refreshLaunchDetail() {
+  if (!state.selectedLaunchId) return;
+  try {
+    const selectedRun = state.selectedRunId
+      ? `?run_id=${encodeURIComponent(state.selectedRunId)}`
+      : "";
+    const detail = await api(
+      `/api/launches/${encodeURIComponent(state.selectedLaunchId)}${selectedRun}`,
+    );
+    renderLaunchDetail(detail);
+  } catch (error) {
+    elements["launch-error"].textContent = error.message || String(error);
+  }
+}
+
+async function refreshLaunches() {
+  if (state.launchRefreshPending) return;
+  state.launchRefreshPending = true;
+  try {
+    const result = await api("/api/launches");
+    state.launches = result.launches;
+    if (
+      state.selectedLaunchId &&
+      !state.launches.some((launch) => launch.launch_id === state.selectedLaunchId)
+    ) {
+      state.selectedLaunchId = null;
+      state.selectedRunId = null;
+    }
+    if (!state.selectedLaunchId && state.launches.length) {
+      state.selectedLaunchId = state.launches[0].launch_id;
+    }
+    renderLaunchList();
+    if (state.selectedLaunchId) await refreshLaunchDetail();
+  } catch (error) {
+    elements["launch-error"].textContent = error.message || String(error);
+  } finally {
+    state.launchRefreshPending = false;
+  }
+}
+
+async function submitLaunch(event) {
+  event.preventDefault();
+  const configPath = elements["launch-config"].value;
+  elements["launch-error"].textContent = "";
+  if (!configPath) return;
+  if (activeConfigIsDirty(configPath)) {
+    elements["launch-error"].textContent = "Save the selected config before launching.";
+    return;
+  }
+  elements["launch-submit"].disabled = true;
+  elements["launch-submit"].textContent = "Starting…";
+  try {
+    const detail = await api("/api/launches", {
+      method: "POST",
+      body: JSON.stringify({
+        config_path: configPath,
+        launcher_path: elements["launch-policy"].value || null,
+        artifact_root: elements["launch-artifacts"].value.trim() || null,
+        resume: elements["launch-resume"].checked,
+      }),
+    });
+    state.selectedLaunchId = detail.launch_id;
+    state.selectedRunId = detail.selected_run_id || null;
+    renderLaunchDetail(detail);
+    await refreshLaunches();
+    setOutput(
+      "Experiment launched",
+      `${detail.config_path}\nlaunch ${detail.launch_id}\n${detail.plan.runs} run(s) · detached scheduler`,
+      "success",
+    );
+  } catch (error) {
+    elements["launch-error"].textContent = error.message || String(error);
+  } finally {
+    elements["launch-submit"].textContent = "Start detached launch";
+    await previewLaunchPlan();
+  }
+}
+
+async function openExperiments() {
+  elements["launch-error"].textContent = "";
+  fillLaunchSelectors();
+  const connection = state.bootstrap.connection || {};
+  const note = elements["remote-session-note"].querySelector("span:last-child");
+  note.textContent =
+    connection.mode === "ssh"
+      ? `SSH session on ${connection.hostname}. The tunnel may disconnect without stopping launches.`
+      : "Localhost-only session. Launches persist if this browser disconnects.";
+  elements["experiments-dialog"].showModal();
+  await Promise.all([previewLaunchPlan(), refreshLaunches()]);
+  window.clearInterval(state.launchPollTimer);
+  state.launchPollTimer = window.setInterval(() => {
+    if (elements["experiments-dialog"].open) refreshLaunches();
+  }, 2000);
+}
+
+function closeExperiments() {
+  elements["experiments-dialog"].close();
+  window.clearInterval(state.launchPollTimer);
+  state.launchPollTimer = null;
+}
+
 function replaceOptions(select, values, { optional = false } = {}) {
   const previous = select.value;
   select.replaceChildren();
@@ -966,6 +1361,7 @@ function installEvents() {
   elements["validate-button"].addEventListener("click", validateActive);
   elements["new-file-button"].addEventListener("click", openNewFile);
   elements["new-config-button"].addEventListener("click", openConfigCreator);
+  elements["experiments-button"].addEventListener("click", openExperiments);
   elements["analytics-button"].addEventListener("click", openAnalytics);
   elements["empty-create-button"].addEventListener("click", openConfigCreator);
   elements["clear-output"].addEventListener("click", () => setOutput("Ready", ""));
@@ -976,6 +1372,13 @@ function installEvents() {
   elements["config-dialog"].addEventListener("click", (event) => {
     if (event.target === elements["config-dialog"]) closeConfigCreator();
   });
+  elements["close-experiments-dialog"].addEventListener("click", closeExperiments);
+  elements["experiments-dialog"].addEventListener("click", (event) => {
+    if (event.target === elements["experiments-dialog"]) closeExperiments();
+  });
+  elements["launch-form"].addEventListener("submit", submitLaunch);
+  elements["launch-config"].addEventListener("change", previewLaunchPlan);
+  elements["refresh-launches"].addEventListener("click", refreshLaunches);
   elements["close-analytics-dialog"].addEventListener("click", () => elements["analytics-dialog"].close());
   elements["analytics-dialog"].addEventListener("click", (event) => {
     if (event.target === elements["analytics-dialog"]) elements["analytics-dialog"].close();
@@ -1042,6 +1445,14 @@ async function start() {
     state.files = state.bootstrap.files;
     elements["workspace-name"].textContent = state.bootstrap.workspace.name;
     elements["workspace-name"].title = state.bootstrap.workspace.path;
+    const connection = state.bootstrap.connection || {};
+    elements["connection-status"].replaceChildren();
+    const dot = document.createElement("span");
+    dot.className = "status-dot";
+    const connectionText = document.createTextNode(
+      connection.mode === "ssh" ? ` ssh · ${connection.hostname}` : " local",
+    );
+    elements["connection-status"].append(dot, connectionText);
     renderFiles();
     renderRegistry();
     if (state.bootstrap.files_truncated) {

@@ -1,4 +1,5 @@
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ from research_assistant.ui.workspace import Workspace, WorkspaceConflict, Worksp
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from research_assistant.ui.server import create_app  # noqa: E402
+from research_assistant.ui.server import create_app, run_ui  # noqa: E402
 
 
 def test_workspace_bounds_atomic_writes_and_conflicts(tmp_path: Path) -> None:
@@ -68,6 +69,7 @@ stages:
     index = client.get("/")
     assert index.status_code == 200
     assert "ResearchAssistant" in index.text
+    assert "Launch and monitor experiments" in index.text
     assert "frame-ancestors 'none'" in index.headers["content-security-policy"]
     asset_path = re.search(r'src="(/assets/[^"]+\.js)"', index.text).group(1)
     assert client.get(asset_path).status_code == 200
@@ -162,6 +164,31 @@ def test_ui_cli_refuses_remote_binding(tmp_path: Path) -> None:
     assert "only binds to localhost" in result.output
 
 
+def test_ui_ssh_mode_prints_tunnel_and_does_not_open_browser(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    import uvicorn
+
+    captured: dict[str, object] = {}
+
+    def fake_run(app, **kwargs) -> None:
+        captured["app"] = app
+        captured.update(kwargs)
+
+    monkeypatch.setattr(uvicorn, "run", fake_run)
+    monkeypatch.setattr("webbrowser.open", lambda _url: pytest.fail("browser should not open"))
+
+    run_ui(tmp_path, port=9123, ssh_mode=True, ssh_target="user@gpu-server")
+
+    output = capsys.readouterr().out
+    assert "ssh -N -L 9123:127.0.0.1:9123 user@gpu-server" in output
+    assert "http://127.0.0.1:9123" in output
+    assert captured["host"] == "127.0.0.1"
+    assert captured["port"] == 9123
+    bootstrap = TestClient(captured["app"]).get("/api/bootstrap")
+    assert bootstrap.json()["connection"]["mode"] == "ssh"
+
+
 def test_ui_analytics_catalog_chart_table_and_export(tmp_path: Path) -> None:
     config = parse_config(
         {
@@ -210,3 +237,91 @@ def test_ui_analytics_catalog_chart_table_and_export(tmp_path: Path) -> None:
     exported = client.post("/api/analytics/table/export", json={"spec": table_spec})
     assert exported.status_code == 200, exported.text
     assert (tmp_path / exported.json()["path"] / "table.tex").is_file()
+
+
+def test_ui_launches_saved_config_in_detached_scheduler(tmp_path: Path) -> None:
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "smoke.yaml").write_text(
+        """version: 1
+experiment:
+  name: ui-launch
+matrix:
+  seed: [0, 1]
+stages:
+  - name: fit
+    type: core/noop
+resources:
+  accelerator: cpu
+""",
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(tmp_path))
+
+    launched = client.post(
+        "/api/launches",
+        json={
+            "config_path": "configs/smoke.yaml",
+            "artifact_root": "runs",
+            "resume": True,
+        },
+    )
+
+    assert launched.status_code == 202, launched.text
+    launch_id = launched.json()["launch_id"]
+    deadline = time.monotonic() + 15
+    detail = launched.json()
+    while detail["state"] in {"queued", "running"} and time.monotonic() < deadline:
+        time.sleep(0.05)
+        response = client.get(f"/api/launches/{launch_id}")
+        assert response.status_code == 200, response.text
+        detail = response.json()
+
+    assert detail["state"] == "completed", detail
+    assert detail["scheduler_alive"] is False
+    assert detail["plan"]["runs"] == 2
+    assert detail["run_counts"] == {"completed": 2}
+    assert all(run["state"] == "completed" for run in detail["runs"])
+    assert f"launch {launch_id}: completed" in detail["scheduler_log"]
+    assert (tmp_path / ".ra" / "ui-launches" / launch_id / "request.json").is_file()
+    selected_run = detail["runs"][0]["run_id"]
+    selected = client.get(f"/api/launches/{launch_id}", params={"run_id": selected_run})
+    assert selected.status_code == 200
+    assert selected.json()["selected_run_id"] == selected_run
+    assert "worker_log" in selected.json()
+    foreign_run = client.get(f"/api/launches/{launch_id}", params={"run_id": "../foreign"})
+    assert foreign_run.status_code == 400
+
+    reconnected = TestClient(create_app(tmp_path))
+    history = reconnected.get("/api/launches")
+    assert history.status_code == 200
+    assert history.json()["launches"][0]["launch_id"] == launch_id
+    assert history.json()["launches"][0]["state"] == "completed"
+
+
+def test_ui_launch_rejects_paths_outside_workspace(tmp_path: Path) -> None:
+    (tmp_path / "configs").mkdir()
+    (tmp_path / "configs" / "smoke.yaml").write_text(
+        """version: 1
+experiment:
+  name: ui-launch-bounds
+stages:
+  - name: fit
+    type: core/noop
+""",
+        encoding="utf-8",
+    )
+    client = TestClient(create_app(tmp_path))
+
+    escaped_output = client.post(
+        "/api/launches",
+        json={"config_path": "configs/smoke.yaml", "artifact_root": "../runs"},
+    )
+    escaped_config = client.post(
+        "/api/launches",
+        json={"config_path": "../smoke.yaml", "artifact_root": "runs"},
+    )
+
+    assert escaped_output.status_code == 400
+    assert "workspace-relative" in escaped_output.json()["detail"]
+    assert escaped_config.status_code == 400
+    assert "escapes workspace" in escaped_config.json()["detail"]

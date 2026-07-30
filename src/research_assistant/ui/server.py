@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import getpass
+import os
+import shlex
+import socket
 import sys
 import threading
 import webbrowser
@@ -22,6 +26,7 @@ from research_assistant.planning import Plan, compile_plan
 from research_assistant.plugins import load_registry
 from research_assistant.registry import Registry
 from research_assistant.reporting import render_latex_table, write_chart_bundle, write_table_bundle
+from research_assistant.ui.launches import LaunchCreateRequest, LaunchManager
 from research_assistant.ui.workspace import Workspace, WorkspaceConflict, WorkspaceError
 
 
@@ -112,7 +117,12 @@ def _registry_for_config(config_plugins: list[str], server_plugins: list[str]) -
     return load_registry(modules)
 
 
-def create_app(root: str | Path, plugins: list[str] | None = None):
+def create_app(
+    root: str | Path,
+    plugins: list[str] | None = None,
+    *,
+    ssh_mode: bool | None = None,
+):
     """Create the optional FastAPI application without importing web dependencies at CLI import."""
     try:
         from fastapi import FastAPI, Query, Request
@@ -151,6 +161,7 @@ def create_app(root: str | Path, plugins: list[str] | None = None):
     app.state.registry = registry
     app.state.plugins = server_plugins
     app.state.metric_indices = {}
+    app.state.launch_manager = LaunchManager(workspace, server_plugins)
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
@@ -180,8 +191,19 @@ def create_app(root: str | Path, plugins: list[str] | None = None):
     @app.get("/api/bootstrap")
     def bootstrap() -> dict[str, Any]:
         tree = workspace.entries()
+        ssh_session = (
+            bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"))
+            if ssh_mode is None
+            else ssh_mode
+        )
         return {
             "workspace": {"name": workspace.root.name, "path": str(workspace.root)},
+            "connection": {
+                "mode": "ssh" if ssh_session else "local",
+                "hostname": socket.gethostname(),
+                "localhost_only": True,
+                "persistent_launches": True,
+            },
             "plugins": server_plugins,
             "files": tree["entries"],
             "files_truncated": tree["truncated"],
@@ -264,6 +286,21 @@ def create_app(root: str | Path, plugins: list[str] | None = None):
             "plan": _plan_summary(plan),
         }
 
+    @app.get("/api/launches")
+    def list_launches() -> dict[str, Any]:
+        return {"launches": app.state.launch_manager.list()}
+
+    @app.post("/api/launches", status_code=202)
+    def create_launch(payload: LaunchCreateRequest) -> dict[str, Any]:
+        return app.state.launch_manager.create(payload)
+
+    @app.get("/api/launches/{launch_id}")
+    def launch_detail(
+        launch_id: str,
+        run_id: str | None = Query(default=None),
+    ) -> dict[str, Any]:
+        return app.state.launch_manager.detail(launch_id, run_id)
+
     def analytics_index(artifact_root: str) -> MetricIndex:
         root_path = bounded_artifact_root(workspace.root, artifact_root)
         key = str(root_path)
@@ -334,6 +371,8 @@ def run_ui(
     host: str = "127.0.0.1",
     port: int = 8765,
     open_browser: bool = True,
+    ssh_mode: bool = False,
+    ssh_target: str | None = None,
 ) -> None:
     if host not in {"127.0.0.1", "localhost", "::1"}:
         raise ResearchAssistantError(
@@ -346,9 +385,18 @@ def run_ui(
             "the UI dependencies are not installed; run pip install 'research-assistant[ui]'"
         ) from exc
 
-    app = create_app(root, plugins)
+    app = create_app(root, plugins, ssh_mode=ssh_mode)
     url_host = "[::1]" if host == "::1" else host
     url = f"http://{url_host}:{port}"
+    if ssh_mode:
+        open_browser = False
+        target = ssh_target or f"{getpass.getuser()}@{socket.getfqdn()}"
+        quoted_target = shlex.quote(target)
+        forward_host = "[::1]" if host == "::1" else "127.0.0.1"
+        print("SSH mode: ResearchAssistant remains bound to the server loopback interface.")
+        print("Run this on your local machine:")
+        print(f"  ssh -N -L {port}:{forward_host}:{port} {quoted_target}")
+        print(f"Then open http://127.0.0.1:{port}")
     if open_browser:
         timer = threading.Timer(0.75, webbrowser.open, args=(url,))
         timer.daemon = True

@@ -31,6 +31,7 @@ training framework. Projects add those concepts as namespaced components.
 - per-attempt compute telemetry and trial-aware historical memory estimates;
 - an interactive schema-driven config creator built from registered components;
 - a bundled Monaco workbench for editing files and visually creating/validating configs;
+- detached experiment launch and run-status monitoring from the browser;
 - an incremental SQLite metric index with UI chart and LaTeX-table builders;
 - reproducible chart/table bundles with data and run provenance;
 - seed-aware mean and standard-deviation reports;
@@ -92,15 +93,21 @@ ra ui . --plugin my_project.plugin
 ```
 
 The workbench provides a project explorer, Monaco file editor with tabs and `Ctrl+S`, the live
-component registry, a visual schema-driven config creator, unsaved-config validation, and indexed
-chart/LaTeX-table builders. Chart queries are aggregated on the server rather than transferring
-complete metric histories to the browser.
+component registry, a visual schema-driven config creator, unsaved-config validation, detached
+experiment launch, persistent run monitoring, and indexed chart/LaTeX-table builders. Chart
+queries are aggregated on the server rather than transferring complete metric histories to the
+browser.
 
-For shared servers, keep the localhost binding and forward the port over SSH:
+On an SSH server, use SSH mode and optionally provide the address used from your local machine:
 
 ```bash
-ra ui . --plugin my_project.plugin --no-open --port 8765
+ra ui . --plugin my_project.plugin --ssh --ssh-target user@server --port 8765
 ```
+
+The command keeps the service on the server loopback interface and prints the corresponding
+`ssh -L` command. Browser launches run in detached scheduler processes with immutable request
+snapshots under `.ra/ui-launches/`; closing the browser or reconnecting the SSH tunnel does not
+stop them, and reopening the UI restores their status and bounded scheduler-log tail.
 
 The editor uses optimistic revisions and atomic replacement: an external file change produces a
 conflict instead of being overwritten. See [docs/ui.md](docs/ui.md) for the security boundary,

@@ -95,9 +95,11 @@ The backend resolves every path under the selected project root, excludes genera
 directories, rejects symlink escapes, limits editable files to UTF-8 text, and performs atomic
 writes guarded by a SHA-256 revision.
 
-The UI intentionally has no terminal, arbitrary command endpoint, delete action, or run-launch
-button in this milestone. Experiment execution remains an explicit CLI action while the UI focuses
-on authoring and planning.
+The UI intentionally has no terminal, arbitrary command endpoint, or delete action. Its launch
+endpoint accepts only a saved, workspace-bounded YAML experiment and optional launcher policy,
+compiles both through the same registry and planner, snapshots the resolved request, and starts a
+detached scheduler without a shell. Persistent launch records let a new UI process reconnect after
+a browser or SSH-tunnel interruption.
 
 ## KNO migration map
 
@@ -126,8 +128,8 @@ separately installable adapter.
   stage state;
 - config inheritance intentionally supports a small `extends` mechanism instead of adopting
   Hydra's job lifecycle;
-- the first UI milestone edits text and creates/validates configs, but does not yet stream run
-  events or expose experiment execution.
+- the UI launches and polls persisted run state, but does not yet stream metric or log events;
+- browser launch history is local to one workspace and does not replace a multi-user service.
 
 ## Next milestones
 

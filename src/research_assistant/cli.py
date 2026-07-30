@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import platform
 import sys
 from pathlib import Path
@@ -85,17 +86,31 @@ def ui(
     host: Annotated[str, typer.Option("--host")] = "127.0.0.1",
     port: Annotated[int, typer.Option("--port", min=1, max=65535)] = 8765,
     open_browser: Annotated[bool, typer.Option("--open/--no-open")] = True,
+    ssh: Annotated[
+        bool,
+        typer.Option(
+            "--ssh",
+            help="Print an SSH forwarding command and do not open a browser on the server.",
+        ),
+    ] = False,
+    ssh_target: Annotated[
+        str | None,
+        typer.Option("--ssh-target", help="USER@HOST used in the printed tunnel command."),
+    ] = None,
 ) -> None:
     """Open the local browser workbench for a ResearchAssistant project."""
     try:
         from research_assistant.ui.server import run_ui
 
+        ssh_mode = ssh or bool(os.environ.get("SSH_CONNECTION") or os.environ.get("SSH_CLIENT"))
         run_ui(
             path,
             plugins=plugin or [],
             host=host,
             port=port,
             open_browser=open_browser,
+            ssh_mode=ssh_mode,
+            ssh_target=ssh_target,
         )
     except ResearchAssistantError as exc:
         _abort(exc)
