@@ -10,7 +10,7 @@ from research_assistant.artifacts import atomic_write_json
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.launching import LocalSubprocessLauncher
 from research_assistant.models import ComponentRef, ExperimentConfig
-from research_assistant.planning import compile_plan
+from research_assistant.planning import Plan, compile_plan
 from research_assistant.plugins import load_registry
 from research_assistant.ui.launches import _utc_now
 
@@ -53,6 +53,15 @@ def run(launch_dir: Path) -> int:
 
         registry = load_registry(config.plugins)
         plan = compile_plan(config, registry)
+        provenance = request.get("provenance")
+        if isinstance(provenance, dict) and provenance:
+            plan = Plan(
+                study_id=plan.study_id,
+                runs=tuple(
+                    manifest.model_copy(update={"provenance": provenance})
+                    for manifest in plan.runs
+                ),
+            )
         expected_runs = list((request.get("plan") or {}).get("run_ids", []))
         if [manifest.run_id for manifest in plan.runs] != expected_runs:
             raise ResearchAssistantError(

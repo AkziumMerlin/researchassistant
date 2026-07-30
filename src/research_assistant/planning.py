@@ -23,6 +23,7 @@ class RunManifest(BaseModel):
     trial_id: str
     run_id: str
     assignments: dict[str, Any] = Field(default_factory=dict)
+    provenance: dict[str, Any] = Field(default_factory=dict)
     config: ExperimentConfig
 
 

@@ -45,6 +45,8 @@ const state = {
   selectedRunId: null,
   launchPollTimer: null,
   launchRefreshPending: false,
+  checkpoints: [],
+  selectedCheckpointPath: null,
 };
 
 const elements = Object.fromEntries(
@@ -66,6 +68,7 @@ const elements = Object.fromEntries(
     "new-file-button",
     "new-config-button",
     "experiments-button",
+    "checkpoints-button",
     "analytics-button",
     "project-button",
     "empty-create-button",
@@ -116,6 +119,27 @@ const elements = Object.fromEntries(
     "refresh-launches",
     "launch-list",
     "launch-detail",
+    "checkpoints-dialog",
+    "close-checkpoints-dialog",
+    "checkpoint-root",
+    "refresh-checkpoints",
+    "checkpoint-summary",
+    "checkpoint-list",
+    "inference-form",
+    "inference-checkpoint",
+    "checkpoint-detail",
+    "inference-config",
+    "inference-splits",
+    "inference-device",
+    "inference-artifacts",
+    "inference-predict",
+    "inference-overrides",
+    "inference-policy",
+    "inference-policy-overrides",
+    "inference-preview",
+    "checkpoint-error",
+    "preview-inference",
+    "start-inference",
     "analytics-dialog",
     "close-analytics-dialog",
     "analytics-root",
@@ -1222,6 +1246,211 @@ function closeExperiments() {
   state.launchPollTimer = null;
 }
 
+function fillInferenceSelectors() {
+  const yamlPaths = savedYamlPaths();
+  const previousConfig = elements["inference-config"].value;
+  elements["inference-config"].replaceChildren();
+  const automatic = document.createElement("option");
+  automatic.value = "";
+  automatic.textContent = "Restore managed checkpoint config";
+  elements["inference-config"].append(automatic);
+  for (const path of yamlPaths) {
+    const option = document.createElement("option");
+    option.value = path;
+    option.textContent = path;
+    elements["inference-config"].append(option);
+  }
+  if ([...elements["inference-config"].options].some((option) => option.value === previousConfig)) {
+    elements["inference-config"].value = previousConfig;
+  }
+
+  const previousPolicy = elements["inference-policy"].value;
+  elements["inference-policy"].replaceChildren();
+  const builtIn = document.createElement("option");
+  builtIn.value = "";
+  builtIn.textContent = "Built-in local subprocess policy";
+  elements["inference-policy"].append(builtIn);
+  for (const path of yamlPaths) {
+    const option = document.createElement("option");
+    option.value = path;
+    option.textContent = path;
+    elements["inference-policy"].append(option);
+  }
+  if ([...elements["inference-policy"].options].some((option) => option.value === previousPolicy)) {
+    elements["inference-policy"].value = previousPolicy;
+  }
+}
+
+function formatBytes(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes)) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+}
+
+function selectedCheckpoint() {
+  const path = elements["inference-checkpoint"].value.trim();
+  return state.checkpoints.find((checkpoint) => checkpoint.path === path) || null;
+}
+
+function renderCheckpointDetail(checkpoint) {
+  if (!checkpoint) {
+    elements["checkpoint-detail"].textContent =
+      "External checkpoint: choose an explicit config before previewing.";
+    return;
+  }
+  const model = checkpoint.model?.type || "unknown model";
+  elements["checkpoint-detail"].textContent =
+    `${checkpoint.study_id} · ${checkpoint.run_id} · ${checkpoint.stage}/${checkpoint.name}\n` +
+    `${model} · ${formatBytes(checkpoint.size)} · ${formatTimestamp(checkpoint.modified_at)}`;
+}
+
+function renderCheckpointList() {
+  const host = elements["checkpoint-list"];
+  host.replaceChildren();
+  if (!state.checkpoints.length) {
+    const empty = document.createElement("div");
+    empty.className = "launch-list-empty";
+    empty.textContent = "No managed checkpoints found.";
+    host.append(empty);
+    return;
+  }
+  for (const checkpoint of state.checkpoints) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className =
+      `checkpoint-card ${checkpoint.path === state.selectedCheckpointPath ? "selected" : ""}`;
+    const top = document.createElement("span");
+    top.className = "checkpoint-card-top";
+    const name = document.createElement("strong");
+    name.textContent = `${checkpoint.study_id} · ${checkpoint.name}`;
+    const badge = document.createElement("span");
+    badge.className = `checkpoint-kind ${checkpoint.name === "best" ? "best" : ""}`;
+    badge.textContent = checkpoint.name;
+    top.append(name, badge);
+    const model = document.createElement("code");
+    model.textContent = checkpoint.model?.type || "unknown model";
+    const meta = document.createElement("span");
+    meta.textContent = `${checkpoint.run_id} · ${checkpoint.stage} · ${formatBytes(checkpoint.size)}`;
+    button.append(top, model, meta);
+    button.addEventListener("click", async () => {
+      state.selectedCheckpointPath = checkpoint.path;
+      elements["inference-checkpoint"].value = checkpoint.path;
+      elements["inference-config"].value = "";
+      renderCheckpointList();
+      renderCheckpointDetail(checkpoint);
+      await previewInference();
+    });
+    host.append(button);
+  }
+}
+
+async function refreshCheckpoints() {
+  elements["checkpoint-error"].textContent = "";
+  elements["checkpoint-summary"].textContent = "Scanning…";
+  try {
+    const result = await api("/api/checkpoints/catalog", {
+      method: "POST",
+      body: JSON.stringify({
+        artifact_root: elements["checkpoint-root"].value.trim() || "runs",
+      }),
+    });
+    state.checkpoints = result.checkpoints;
+    elements["checkpoint-summary"].textContent = `${state.checkpoints.length} checkpoint(s)`;
+    if (
+      state.selectedCheckpointPath &&
+      !state.checkpoints.some((checkpoint) => checkpoint.path === state.selectedCheckpointPath)
+    ) {
+      state.selectedCheckpointPath = null;
+    }
+    renderCheckpointList();
+  } catch (error) {
+    elements["checkpoint-summary"].textContent = "Catalog unavailable";
+    elements["checkpoint-error"].textContent = error.message || String(error);
+  }
+}
+
+function inferencePayload() {
+  const splits = elements["inference-splits"].value
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!splits.length) throw new Error("Enter at least one evaluation split");
+  const checkpointPath = elements["inference-checkpoint"].value.trim();
+  if (!checkpointPath) throw new Error("Select or enter a checkpoint path");
+  return {
+    checkpoint_path: checkpointPath,
+    config_path: elements["inference-config"].value || null,
+    splits,
+    device: elements["inference-device"].value,
+    predict: elements["inference-predict"].checked,
+    overrides: overrideLines(elements["inference-overrides"].value),
+    launcher_path: elements["inference-policy"].value || null,
+    launcher_overrides: overrideLines(elements["inference-policy-overrides"].value),
+    artifact_root: elements["inference-artifacts"].value.trim() || "runs",
+  };
+}
+
+async function previewInference() {
+  elements["checkpoint-error"].textContent = "";
+  elements["start-inference"].disabled = true;
+  try {
+    const payload = inferencePayload();
+    const result = await api("/api/checkpoints/inspect", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    const plan = result.launch.plan;
+    const checkpoint = result.checkpoint;
+    renderCheckpointDetail(checkpoint.managed ? checkpoint : null);
+    elements["inference-preview"].textContent =
+      `${plan.runs} inference run · study ${plan.study_id}\n` +
+      `${result.config.stages[0].type} · splits ${payload.splits.join(", ")} · ${payload.device}\n` +
+      `model ${result.config.components.model.type}\ncheckpoint ${checkpoint.path}`;
+    elements["start-inference"].disabled = false;
+  } catch (error) {
+    elements["inference-preview"].textContent = "Checkpoint/config compatibility is not validated.";
+    elements["checkpoint-error"].textContent = error.message || String(error);
+  }
+}
+
+async function submitInference(event) {
+  event.preventDefault();
+  elements["checkpoint-error"].textContent = "";
+  elements["start-inference"].disabled = true;
+  elements["start-inference"].textContent = "Starting…";
+  try {
+    const detail = await api("/api/checkpoints/infer", {
+      method: "POST",
+      body: JSON.stringify(inferencePayload()),
+    });
+    state.selectedLaunchId = detail.launch_id;
+    state.selectedRunId = detail.selected_run_id || null;
+    setOutput(
+      "Inference launched",
+      `${detail.config_path}\nlaunch ${detail.launch_id}\n${detail.plan.runs} run(s) · detached scheduler`,
+      "success",
+    );
+    elements["checkpoints-dialog"].close();
+    await openExperiments();
+  } catch (error) {
+    elements["checkpoint-error"].textContent = error.message || String(error);
+  } finally {
+    elements["start-inference"].textContent = "Start inference";
+    elements["start-inference"].disabled = false;
+  }
+}
+
+async function openCheckpoints() {
+  elements["checkpoint-error"].textContent = "";
+  fillInferenceSelectors();
+  elements["checkpoints-dialog"].showModal();
+  await refreshCheckpoints();
+  if (elements["inference-checkpoint"].value.trim()) await previewInference();
+}
+
 function replaceOptions(select, values, { optional = false } = {}) {
   const previous = select.value;
   select.replaceChildren();
@@ -1700,6 +1929,7 @@ function installEvents() {
   elements["new-file-button"].addEventListener("click", openNewFile);
   elements["new-config-button"].addEventListener("click", openConfigCreator);
   elements["experiments-button"].addEventListener("click", openExperiments);
+  elements["checkpoints-button"].addEventListener("click", openCheckpoints);
   elements["analytics-button"].addEventListener("click", openAnalytics);
   elements["project-button"].addEventListener("click", openProjectDialog);
   elements["empty-create-button"].addEventListener("click", openConfigCreator);
@@ -1727,6 +1957,29 @@ function installEvents() {
   elements["launch-overrides"].addEventListener("change", previewLaunchPlan);
   elements["launch-policy-overrides"].addEventListener("change", previewLaunchPlan);
   elements["refresh-launches"].addEventListener("click", refreshLaunches);
+  elements["close-checkpoints-dialog"].addEventListener("click", () =>
+    elements["checkpoints-dialog"].close(),
+  );
+  elements["checkpoints-dialog"].addEventListener("click", (event) => {
+    if (event.target === elements["checkpoints-dialog"]) elements["checkpoints-dialog"].close();
+  });
+  elements["refresh-checkpoints"].addEventListener("click", refreshCheckpoints);
+  elements["checkpoint-root"].addEventListener("change", refreshCheckpoints);
+  elements["inference-form"].addEventListener("submit", submitInference);
+  elements["preview-inference"].addEventListener("click", previewInference);
+  for (const id of [
+    "inference-checkpoint",
+    "inference-config",
+    "inference-splits",
+    "inference-device",
+    "inference-artifacts",
+    "inference-predict",
+    "inference-overrides",
+    "inference-policy",
+    "inference-policy-overrides",
+  ]) {
+    elements[id].addEventListener("change", previewInference);
+  }
   elements["close-analytics-dialog"].addEventListener("click", () => elements["analytics-dialog"].close());
   elements["analytics-dialog"].addEventListener("click", (event) => {
     if (event.target === elements["analytics-dialog"]) elements["analytics-dialog"].close();

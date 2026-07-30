@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
     <title>ResearchAssistant</title>
-    <script type="module" crossorigin src="/assets/index-C8sDStFK.js"></script>
+    <script type="module" crossorigin src="/assets/index-BFXLLxOt.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/monaco-core-m-r-higXCsf5.js">
     <link rel="modulepreload" crossorigin href="/assets/monaco-base-common-root-m-r-CHLg9-Xf.js">
     <link rel="modulepreload" crossorigin href="/assets/monaco-base-common-observableInternal-g-EcJz9z.js">
@@ -114,8 +114,8 @@
     <link rel="modulepreload" crossorigin href="/assets/monaco-contrib-readOnlyMessage-pc9MJ3cC.js">
     <link rel="modulepreload" crossorigin href="/assets/monaco-contrib-diffEditorBreadcrumbs-C_r5OFR2.js">
     <link rel="modulepreload" crossorigin href="/assets/monaco-contrib-floatingMenu-B4aPjsTf.js">
-    <link rel="modulepreload" crossorigin href="/assets/index-C8sDStFK.js">
-    <link rel="modulepreload" crossorigin href="/assets/monaco-languages-CWVcncOX.js">
+    <link rel="modulepreload" crossorigin href="/assets/index-BFXLLxOt.js">
+    <link rel="modulepreload" crossorigin href="/assets/monaco-languages-BuoPSHHu.js">
     <link rel="stylesheet" crossorigin href="/assets/monaco-base-browser-ui-DfKtmWBc.css">
     <link rel="stylesheet" crossorigin href="/assets/monaco-platform-m-r-YcvCoC-0.css">
     <link rel="stylesheet" crossorigin href="/assets/monaco-platform-a-f-DrGymszL.css">
@@ -156,7 +156,7 @@
     <link rel="stylesheet" crossorigin href="/assets/monaco-contrib-rename-DnvFQ7hy.css">
     <link rel="stylesheet" crossorigin href="/assets/monaco-contrib-unicodeHighlighter-Dp2U1WKk.css">
     <link rel="stylesheet" crossorigin href="/assets/monaco-contrib-floatingMenu-LnswRIKp.css">
-    <link rel="stylesheet" crossorigin href="/assets/index-DGAT-dj4.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-CHqAqUj-.css">
   </head>
   <body>
     <div id="app-shell">
@@ -174,6 +174,7 @@
           <button id="new-file-button" class="button ghost" type="button">New file</button>
           <button id="new-config-button" class="button ghost" type="button">New config</button>
           <button id="experiments-button" class="button ghost" type="button">Launch</button>
+          <button id="checkpoints-button" class="button ghost" type="button">Checkpoints</button>
           <button id="analytics-button" class="button ghost" type="button">Reports</button>
           <button id="project-button" class="button ghost" type="button">Project</button>
           <button id="validate-button" class="button ghost" type="button" disabled>Inspect</button>
@@ -431,6 +432,86 @@
               <div class="launch-detail-empty">Select a launch to inspect its runs and scheduler log.</div>
             </div>
           </div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="checkpoints-dialog" class="checkpoints-dialog">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">TRAINED MODELS</span>
+          <h2>Checkpoints and inference</h2>
+        </div>
+        <button id="close-checkpoints-dialog" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="checkpoint-toolbar">
+        <label class="field">
+          <span>Checkpoint catalog root</span>
+          <input id="checkpoint-root" value="runs" />
+        </label>
+        <button id="refresh-checkpoints" class="button ghost" type="button">Refresh</button>
+        <span id="checkpoint-summary" class="analytics-summary">Not scanned</span>
+      </div>
+      <div class="checkpoints-grid">
+        <section class="checkpoint-catalog">
+          <div class="section-heading"><h3>Managed checkpoints</h3><span>best / last</span></div>
+          <div id="checkpoint-list" class="checkpoint-list"></div>
+        </section>
+        <section class="inference-builder">
+          <div class="section-heading"><h3>Inference run</h3><span>detached and resumable</span></div>
+          <form id="inference-form">
+            <label class="field wide">
+              <span>Checkpoint path</span>
+              <input id="inference-checkpoint" placeholder="runs/study/run/checkpoints/fit/best.pt" required />
+            </label>
+            <div id="checkpoint-detail" class="checkpoint-detail">
+              Select a managed checkpoint or enter a workspace-relative path.
+            </div>
+            <label class="field wide">
+              <span>Explicit config (required for external checkpoints)</span>
+              <select id="inference-config"></select>
+            </label>
+            <div class="field-grid">
+              <label class="field">
+                <span>Splits</span>
+                <input id="inference-splits" value="test" placeholder="test, ood" />
+              </label>
+              <label class="field">
+                <span>Device</span>
+                <select id="inference-device">
+                  <option value="auto">auto</option>
+                  <option value="cpu">cpu</option>
+                  <option value="cuda">cuda</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Output artifact root</span>
+                <input id="inference-artifacts" value="runs" />
+              </label>
+              <label class="checkbox-field">
+                <input id="inference-predict" type="checkbox" />
+                <span>Save batch-wise predictions</span>
+              </label>
+            </div>
+            <label class="field wide">
+              <span>Config overrides</span>
+              <textarea id="inference-overrides" rows="3" placeholder="components.data.params.batch_size=16"></textarea>
+            </label>
+            <label class="field wide">
+              <span>Launcher policy</span>
+              <select id="inference-policy"></select>
+            </label>
+            <label class="field wide">
+              <span>Launcher overrides</span>
+              <textarea id="inference-policy-overrides" rows="2" placeholder="params.max_parallel=1"></textarea>
+            </label>
+            <pre id="inference-preview" class="launch-plan-preview">Select a checkpoint to validate compatibility.</pre>
+            <div id="checkpoint-error" class="form-error" role="alert"></div>
+            <div class="dialog-actions inference-actions">
+              <button id="preview-inference" class="button ghost" type="button">Preview</button>
+              <button id="start-inference" class="button primary" type="submit">Start inference</button>
+            </div>
+          </form>
         </section>
       </div>
     </dialog>

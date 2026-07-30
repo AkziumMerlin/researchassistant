@@ -6,6 +6,12 @@ import pytest
 from pydantic import BaseModel, ConfigDict
 
 from research_assistant.builtin import register as register_builtin
+from research_assistant.checkpoints import (
+    build_inference_config,
+    catalog_checkpoints,
+    compile_inference_plan,
+    inspect_checkpoint,
+)
 from research_assistant.config import parse_config
 from research_assistant.execution import StageContext, execute_run
 from research_assistant.integrations.torch import TorchDataLoaders, TorchRecipe, TorchStep
@@ -50,6 +56,7 @@ def make_recipe(context: StageContext, *, interrupt_once: bool) -> TorchRecipe:
         optimizer=lambda model: torch.optim.SGD(model.parameters(), lr=0.1),
         train_step=train_step,
         eval_step=lambda model, batch, device, split: step(model, batch, device, split),
+        predict_step=lambda model, batch, device, split: model(batch[0].to(device)).cpu(),
     )
 
 
@@ -134,3 +141,57 @@ def test_fit_resumes_from_last_completed_epoch(tmp_path: Path) -> None:
     run_dir = tmp_path / "torch-test" / manifest.run_id
     assert status["state"] == "completed"
     assert (run_dir / "train-calls.txt").read_text(encoding="utf-8") == "3"
+
+
+def test_managed_checkpoint_builds_inference_only_run(tmp_path: Path) -> None:
+    registry = torch_registry()
+    training_manifest = compile_plan(experiment("test/mse"), registry).runs[0]
+    training_status = execute_run(training_manifest, registry, artifact_root=tmp_path)
+    run_dir = tmp_path / training_manifest.study_id / training_manifest.run_id
+    checkpoint = run_dir / training_status["stages"]["fit"]["artifacts"]["best"]
+
+    descriptor = inspect_checkpoint(checkpoint)
+    assert descriptor.managed is True
+    assert descriptor.run_id == training_manifest.run_id
+    assert descriptor.model.type == "test/linear"
+    assert {item.name for item in catalog_checkpoints(tmp_path)} == {"best", "last"}
+
+    config, provenance = build_inference_config(checkpoint, registry, splits=["test"])
+    inference_plan = compile_inference_plan(config, registry, provenance)
+    inference_manifest = inference_plan.runs[0]
+    status = execute_run(inference_manifest, registry, artifact_root=tmp_path)
+
+    assert [stage.name for stage in inference_manifest.config.stages] == ["test"]
+    assert inference_manifest.config.stages[0].type == "torch/evaluate"
+    assert inference_manifest.provenance["source_run_id"] == training_manifest.run_id
+    assert status["stages"]["test"]["metrics"]["test/loss"] >= 0.0
+
+
+def test_predict_saves_batchwise_outputs_and_index(tmp_path: Path) -> None:
+    registry = torch_registry()
+    training_manifest = compile_plan(experiment("test/mse"), registry).runs[0]
+    training_status = execute_run(training_manifest, registry, artifact_root=tmp_path)
+    run_dir = tmp_path / training_manifest.study_id / training_manifest.run_id
+    checkpoint = run_dir / training_status["stages"]["fit"]["artifacts"]["best"]
+
+    config, provenance = build_inference_config(
+        checkpoint,
+        registry,
+        splits=["test"],
+        predict=True,
+    )
+    manifest = compile_inference_plan(config, registry, provenance).runs[0]
+    status = execute_run(manifest, registry, artifact_root=tmp_path)
+    inference_dir = tmp_path / manifest.study_id / manifest.run_id
+    index_path = inference_dir / status["stages"]["predict"]["artifacts"]["index"]
+    index = json.loads(index_path.read_text(encoding="utf-8"))
+
+    assert status["stages"]["predict"]["metrics"]["prediction/batches"] == 1.0
+    assert index == [
+        {
+            "batch": 0,
+            "path": "predictions/predict/test/batch-000000.pt",
+            "split": "test",
+        }
+    ]
+    assert (inference_dir / index[0]["path"]).is_file()

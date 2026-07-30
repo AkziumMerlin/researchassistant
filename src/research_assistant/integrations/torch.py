@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 import random
@@ -49,6 +50,7 @@ class TorchRecipe:
     optimizer: Callable[[Any], Any]
     train_step: Callable[[Any, Any, Any], TorchStep]
     eval_step: Callable[[Any, Any, Any, str], TorchStep]
+    predict_step: Callable[[Any, Any, Any, str], Any] | None = None
     scheduler: Callable[[Any], Any] | None = None
     scheduler_step: Callable[[Any, Mapping[str, float]], None] | None = None
 
@@ -75,8 +77,13 @@ class TorchEvaluateParams(BaseModel):
 
     checkpoint_stage: str = "fit"
     checkpoint: str = "best"
+    checkpoint_path: str | None = None
     splits: list[str] | None = None
     device: Literal["auto", "cpu", "cuda"] = "auto"
+
+
+class TorchPredictParams(TorchEvaluateParams):
+    output_directory: str = "predictions"
 
 
 def _torch() -> Any:
@@ -260,6 +267,15 @@ def _load_checkpoint(torch: Any, path: Path) -> Mapping[str, Any]:
     return value
 
 
+def _resolve_checkpoint_path(params: TorchEvaluateParams, context: StageContext) -> Path:
+    if params.checkpoint_path is not None:
+        path = Path(params.checkpoint_path).expanduser().resolve()
+        if not path.is_file():
+            raise ExecutionError(f"checkpoint does not exist: {path}")
+        return path
+    return context.artifact(params.checkpoint_stage, params.checkpoint)
+
+
 def _checkpoint(
     torch: Any,
     *,
@@ -406,7 +422,7 @@ def run_evaluate(params: TorchEvaluateParams, context: StageContext) -> StageRes
     model, data, recipe = _require_components(context)
     model.to(device)
 
-    checkpoint_path = context.artifact(params.checkpoint_stage, params.checkpoint)
+    checkpoint_path = _resolve_checkpoint_path(params, context)
     saved = _load_checkpoint(torch, checkpoint_path)
     model.load_state_dict(saved["model"])
 
@@ -434,6 +450,58 @@ def run_evaluate(params: TorchEvaluateParams, context: StageContext) -> StageRes
     return StageResult(metrics=metrics)
 
 
+def run_predict(params: TorchPredictParams, context: StageContext) -> StageResult:
+    torch = _torch()
+    device = _resolve_device(torch, context, params.device)
+    _seed_everything(torch, context.seed)
+    model, data, recipe = _require_components(context)
+    if recipe.predict_step is None:
+        raise ExecutionError("torch/predict requires TorchRecipe.predict_step")
+    model.to(device)
+
+    checkpoint_path = _resolve_checkpoint_path(params, context)
+    saved = _load_checkpoint(torch, checkpoint_path)
+    model.load_state_dict(saved["model"])
+
+    splits = params.splits or list(data.evaluation)
+    if not splits:
+        raise ExecutionError("torch/predict requires at least one evaluation split")
+    missing = [split for split in splits if split not in data.evaluation]
+    if missing:
+        available = ", ".join(sorted(data.evaluation)) or "none"
+        raise ExecutionError(
+            f"unknown prediction splits {', '.join(missing)}; available: {available}"
+        )
+
+    relative_output = Path(params.output_directory)
+    if relative_output.is_absolute() or ".." in relative_output.parts:
+        raise ExecutionError("prediction output directory must stay inside the run directory")
+    output_root = context.run_dir / relative_output / context.stage.name
+    index: list[dict[str, Any]] = []
+    model.eval()
+    with torch.no_grad():
+        for split in splits:
+            split_root = output_root / split
+            split_root.mkdir(parents=True, exist_ok=True)
+            for batch_index, batch in enumerate(data.evaluation[split]):
+                value = recipe.predict_step(model, batch, device, split)
+                path = split_root / f"batch-{batch_index:06d}.pt"
+                _atomic_save(torch, {"prediction": value}, path)
+                index.append(
+                    {
+                        "split": split,
+                        "batch": batch_index,
+                        "path": path.relative_to(context.run_dir).as_posix(),
+                    }
+                )
+    index_path = output_root / "index.json"
+    index_path.write_text(json.dumps(index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return StageResult(
+        metrics={"prediction/batches": float(len(index))},
+        artifacts={"predictions": str(output_root), "index": str(index_path)},
+    )
+
+
 def register(registry: Registry) -> None:
     registry.add(
         "stage",
@@ -449,5 +517,13 @@ def register(registry: Registry) -> None:
         factory=run_evaluate,
         schema=TorchEvaluateParams,
         description="Evaluate a registered PyTorch model from a named checkpoint artifact.",
+        provider="research-assistant[torch]",
+    )
+    registry.add(
+        "stage",
+        "torch/predict",
+        factory=run_predict,
+        schema=TorchPredictParams,
+        description="Save batch-wise predictions from a registered PyTorch model.",
         provider="research-assistant[torch]",
     )

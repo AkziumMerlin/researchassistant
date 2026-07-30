@@ -1,5 +1,7 @@
 import json
 import re
+import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -7,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from research_assistant.cli import app as cli_app
-from research_assistant.config import parse_config
+from research_assistant.config import dump_config, parse_config
 from research_assistant.execution import execute_run
 from research_assistant.planning import compile_plan
 from research_assistant.plugins import load_registry
@@ -438,3 +440,78 @@ stages:
     assert "workspace-relative" in escaped_output.json()["detail"]
     assert escaped_config.status_code == 400
     assert "escapes workspace" in escaped_config.json()["detail"]
+
+
+def test_ui_checkpoint_catalog_preview_and_detached_inference(tmp_path: Path) -> None:
+    pytest.importorskip("torch")
+    source = Path(__file__).parents[1] / "examples" / "torch" / "ra_torch_example"
+    shutil.copytree(source, tmp_path / "ra_torch_example")
+    (tmp_path / "configs").mkdir()
+    config = parse_config(
+        {
+            "version": 1,
+            "experiment": {"name": "ui-checkpoint"},
+            "plugins": ["ra_torch_example.plugin"],
+            "seed": 0,
+            "components": {
+                "model": {"type": "torch_example/mlp", "params": {"width": 4}},
+                "data": {"type": "torch_example/regression", "params": {"batch_size": 64}},
+                "recipe": {"type": "torch_example/mse", "params": {"learning_rate": 0.01}},
+            },
+            "stages": [
+                {
+                    "name": "fit",
+                    "type": "torch/fit",
+                    "params": {"epochs": 1, "monitor": "val/loss", "device": "cpu"},
+                }
+            ],
+            "resources": {"accelerator": "cpu"},
+            "artifacts": {"root": "runs"},
+        }
+    )
+    config_path = tmp_path / "configs" / "train.yaml"
+    config_path.write_text(dump_config(config), encoding="utf-8")
+    sys.path.insert(0, str(tmp_path))
+    try:
+        registry = load_registry(config.plugins)
+        training_manifest = compile_plan(config, registry).runs[0]
+        status = execute_run(training_manifest, registry, artifact_root=tmp_path / "runs")
+    finally:
+        sys.path.remove(str(tmp_path))
+    checkpoint = status["stages"]["fit"]["artifacts"]["best"]
+    checkpoint_path = (
+        Path("runs") / training_manifest.study_id / training_manifest.run_id / checkpoint
+    ).as_posix()
+    client = TestClient(create_app(tmp_path, plugins=["ra_torch_example.plugin"]))
+
+    catalog = client.post("/api/checkpoints/catalog", json={"artifact_root": "runs"})
+    assert catalog.status_code == 200, catalog.text
+    assert {item["name"] for item in catalog.json()["checkpoints"]} == {"best", "last"}
+
+    request = {
+        "checkpoint_path": checkpoint_path,
+        "config_path": None,
+        "splits": ["test"],
+        "device": "cpu",
+        "artifact_root": "runs",
+    }
+    preview = client.post("/api/checkpoints/inspect", json=request)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["checkpoint"]["run_id"] == training_manifest.run_id
+    assert [stage["type"] for stage in preview.json()["config"]["stages"]] == ["torch/evaluate"]
+
+    launched = client.post("/api/checkpoints/infer", json=request)
+    assert launched.status_code == 202, launched.text
+    launch_id = launched.json()["launch_id"]
+    deadline = time.monotonic() + 20
+    detail = launched.json()
+    while detail["state"] in {"queued", "running"} and time.monotonic() < deadline:
+        time.sleep(0.05)
+        detail = client.get(f"/api/launches/{launch_id}").json()
+    assert detail["state"] == "completed", detail
+    inference_run = detail["runs"][0]["run_id"]
+    manifest_path = (
+        tmp_path / "runs" / "ui-checkpoint-inference" / inference_run / "manifest.json"
+    )
+    inference_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert inference_manifest["provenance"]["source_run_id"] == training_manifest.run_id

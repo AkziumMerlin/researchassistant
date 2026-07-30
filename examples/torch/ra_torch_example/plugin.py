@@ -63,6 +63,7 @@ def build_recipe(config: RecipeConfig, _context: Any) -> TorchRecipe:
         ),
         train_step=lambda model, batch, device: step(model, batch, device),
         eval_step=lambda model, batch, device, split: step(model, batch, device, split),
+        predict_step=lambda model, batch, device, split: model(batch[0].to(device)).cpu(),
     )
 
 

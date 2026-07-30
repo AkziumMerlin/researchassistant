@@ -13,6 +13,12 @@ from pydantic import ValidationError
 
 from research_assistant import __version__
 from research_assistant.analytics import ChartSpec, MetricIndex, TableSpec
+from research_assistant.checkpoints import (
+    build_inference_config,
+    catalog_checkpoints,
+    compile_inference_plan,
+    inspect_checkpoint,
+)
 from research_assistant.config import dump_config, load_config
 from research_assistant.config_creator import (
     ConfigCreator,
@@ -45,9 +51,11 @@ app = typer.Typer(
 config_app = typer.Typer(help="Validate and render experiment configurations.")
 component_app = typer.Typer(help="Inspect registered components.")
 report_app = typer.Typer(help="Aggregate structured run results.")
+checkpoint_app = typer.Typer(help="Discover and inspect trained-model checkpoints.")
 app.add_typer(config_app, name="config")
 app.add_typer(component_app, name="component")
 app.add_typer(report_app, name="report")
+app.add_typer(checkpoint_app, name="checkpoint")
 
 
 def _abort(exc: Exception) -> None:
@@ -329,6 +337,97 @@ def status(root: Annotated[Path, typer.Argument()] = Path("runs")) -> None:
     for path in paths:
         payload = json.loads(path.read_text(encoding="utf-8"))
         typer.echo(f"{payload['run_id']:12} {payload['state']:10} {path.parent}")
+
+
+@checkpoint_app.command("list")
+def checkpoint_list(
+    root: Annotated[Path, typer.Argument()] = Path("runs"),
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """List managed best/last checkpoints under an artifact root."""
+    rows = [item.as_dict(relative_to=Path.cwd().resolve()) for item in catalog_checkpoints(root)]
+    if json_output:
+        typer.echo(json.dumps(rows, indent=2, sort_keys=True))
+        return
+    if not rows:
+        typer.echo(f"no checkpoints found under {root}")
+        return
+    typer.echo(
+        "study              run          stage        name       "
+        "model                      path"
+    )
+    for row in rows:
+        model = row.get("model") or {}
+        typer.echo(
+            f"{str(row.get('study_id') or 'external'):<18} "
+            f"{str(row.get('run_id') or '—')[:12]:<12} "
+            f"{str(row.get('stage') or '—'):<12} "
+            f"{row['name']:<10} "
+            f"{str(model.get('type') or 'unknown'):<26} "
+            f"{row['path']}"
+        )
+
+
+@checkpoint_app.command("show")
+def checkpoint_show(
+    path: Path,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Show checkpoint provenance and the exact registered model component."""
+    try:
+        payload = inspect_checkpoint(path).as_dict(relative_to=Path.cwd().resolve())
+    except ResearchAssistantError as exc:
+        _abort(exc)
+    if json_output:
+        typer.echo(json.dumps(payload, indent=2, sort_keys=True))
+    else:
+        typer.echo(yaml.safe_dump(payload, sort_keys=False).rstrip())
+
+
+@app.command()
+def infer(
+    checkpoint: Path,
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", help="Required for checkpoints outside a managed run."),
+    ] = None,
+    split: Annotated[list[str] | None, typer.Option("--split")] = None,
+    device: Annotated[str, typer.Option("--device")] = "auto",
+    set_: Annotated[list[str] | None, typer.Option("--set", help="Config KEY=VALUE.")] = None,
+    output: Annotated[Path | None, typer.Option("--output")] = None,
+    predict: Annotated[bool, typer.Option("--predict")] = False,
+    resume: Annotated[bool, typer.Option("--resume/--no-resume")] = True,
+) -> None:
+    """Evaluate or save predictions from an existing trained-model checkpoint."""
+    if device not in {"auto", "cpu", "cuda"}:
+        _abort(ResearchAssistantError("--device must be one of auto, cpu, or cuda"))
+    try:
+        descriptor = inspect_checkpoint(checkpoint)
+        if config is not None:
+            source = load_config(config, set_ or [])
+        elif descriptor.manifest is not None:
+            source = descriptor.manifest.config
+        else:
+            raise ResearchAssistantError("an external checkpoint requires --config")
+        registry = load_registry(source.plugins)
+        inference_config, provenance = build_inference_config(
+            descriptor.path,
+            registry,
+            config_path=config,
+            overrides=set_ or [],
+            splits=split or ["test"],
+            device=device,
+            predict=predict,
+        )
+        plan = compile_inference_plan(inference_config, registry, provenance)
+        manifest = plan.runs[0]
+        typer.echo(
+            f"inference run {manifest.run_id} from {descriptor.path} "
+            f"({', '.join(split or ['test'])})"
+        )
+        execute_run(manifest, registry, artifact_root=output, resume=resume)
+    except ResearchAssistantError as exc:
+        _abort(exc)
 
 
 @report_app.command("summary")

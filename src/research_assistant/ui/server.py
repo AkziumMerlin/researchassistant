@@ -23,6 +23,11 @@ from research_assistant.analytics import (
     TableSpec,
     bounded_artifact_root,
 )
+from research_assistant.checkpoints import (
+    build_inference_config,
+    catalog_checkpoints,
+    inspect_checkpoint,
+)
 from research_assistant.config import dump_config, load_config_text
 from research_assistant.config_creator import assemble_config
 from research_assistant.errors import ResearchAssistantError
@@ -117,6 +122,22 @@ class ChartExportRequest(UiModel):
 class TableExportRequest(UiModel):
     spec: TableSpec
     output_path: str | None = None
+
+
+class CheckpointCatalogRequest(UiModel):
+    artifact_root: str = "runs"
+
+
+class InferenceRequest(UiModel):
+    checkpoint_path: str = Field(min_length=1)
+    config_path: str | None = None
+    splits: list[str] = Field(default_factory=lambda: ["test"], min_length=1)
+    device: Literal["auto", "cpu", "cuda"] = "auto"
+    predict: bool = False
+    overrides: list[str] = Field(default_factory=list)
+    launcher_path: str | None = None
+    launcher_overrides: list[str] = Field(default_factory=list)
+    artifact_root: str = "runs"
 
 
 def _plan_summary(plan: Plan) -> dict[str, Any]:
@@ -447,6 +468,82 @@ def create_app(
         run_id: str | None = Query(default=None),
     ) -> dict[str, Any]:
         return app.state.launch_manager.detail(launch_id, run_id)
+
+    def prepare_inference(payload: InferenceRequest):
+        checkpoint_path = bounded_artifact_root(workspace.root, payload.checkpoint_path)
+        descriptor = inspect_checkpoint(checkpoint_path)
+        if payload.config_path is not None:
+            source_file = workspace.read(payload.config_path)
+            source_config = load_config_text(
+                source_file.content,
+                workspace.resolve(source_file.path),
+                payload.overrides,
+                allowed_root=workspace.root,
+            )
+            config_label = source_file.path
+        elif descriptor.manifest is not None:
+            document = descriptor.manifest.config.model_dump(mode="python")
+            source_config = load_config_text(
+                yaml.safe_dump(document, sort_keys=False),
+                workspace.root / "managed-checkpoint.yaml",
+                payload.overrides,
+                allowed_root=workspace.root,
+            )
+            config_label = f"checkpoint:{payload.checkpoint_path}"
+        else:
+            raise WorkspaceError("an external checkpoint requires an explicit config")
+        configured_registry = _registry_for_config(source_config.plugins, server_plugins)
+        config, provenance = build_inference_config(
+            checkpoint_path,
+            configured_registry,
+            base_config=source_config,
+            splits=payload.splits,
+            device=payload.device,
+            predict=payload.predict,
+        )
+        config = config.model_copy(
+            update={"plugins": list(dict.fromkeys([*server_plugins, *config.plugins]))}
+        )
+        return descriptor, config, provenance, config_label
+
+    @app.post("/api/checkpoints/catalog")
+    def checkpoint_catalog(payload: CheckpointCatalogRequest) -> dict[str, Any]:
+        root_path = bounded_artifact_root(workspace.root, payload.artifact_root)
+        rows = [
+            descriptor.as_dict(relative_to=workspace.root)
+            for descriptor in catalog_checkpoints(root_path)
+        ]
+        return {"artifact_root": payload.artifact_root, "checkpoints": rows}
+
+    @app.post("/api/checkpoints/inspect")
+    def checkpoint_inspect(payload: InferenceRequest) -> dict[str, Any]:
+        descriptor, config, provenance, config_label = prepare_inference(payload)
+        preview = app.state.launch_manager.preview_resolved(
+            config,
+            config_path=config_label,
+            launcher_path=payload.launcher_path,
+            artifact_root=payload.artifact_root,
+            launcher_overrides=payload.launcher_overrides,
+            provenance=provenance,
+        )
+        return {
+            "checkpoint": descriptor.as_dict(relative_to=workspace.root),
+            "config": config.model_dump(mode="json"),
+            "rendered": dump_config(config),
+            "launch": preview,
+        }
+
+    @app.post("/api/checkpoints/infer", status_code=202)
+    def checkpoint_infer(payload: InferenceRequest) -> dict[str, Any]:
+        _descriptor, config, provenance, config_label = prepare_inference(payload)
+        return app.state.launch_manager.create_resolved(
+            config,
+            config_path=config_label,
+            launcher_path=payload.launcher_path,
+            artifact_root=payload.artifact_root,
+            launcher_overrides=payload.launcher_overrides,
+            provenance=provenance,
+        )
 
     def analytics_index(artifact_root: str) -> MetricIndex:
         root_path = bounded_artifact_root(workspace.root, artifact_root)

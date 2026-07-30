@@ -26,7 +26,8 @@ training framework. Projects add those concepts as namespaced components.
 - named artifacts passed between dependent stages;
 - stage-local component overrides for test/OOD protocols;
 - safe resume with distinct failed/interrupted states;
-- optional recipe-based PyTorch fit/evaluate stages with atomic checkpoints;
+- optional recipe-based PyTorch fit/evaluate/predict stages with atomic checkpoints;
+- checkpoint discovery, provenance, compatibility checks, and inference-only runs;
 - shared-GPU subprocess scheduling with configurable memory/utilization gates;
 - per-attempt compute telemetry and trial-aware historical memory estimates;
 - an interactive schema-driven config creator built from registered components;
@@ -94,10 +95,25 @@ ra ui . --plugin my_project.plugin
 
 The workbench provides a project explorer, Monaco file editor with tabs and `Ctrl+S`, the live
 component registry, a visual schema-driven config creator, composed-config and run-plan inspection,
-detached experiment launch with config/launcher overrides, persistent run monitoring, aggregate
-metric/resource summaries, and indexed chart/LaTeX-table builders with saved-spec loading. Chart
-queries are aggregated on the server rather than transferring complete metric histories to the
-browser.
+detached experiment launch with config/launcher overrides, checkpoint discovery and inference,
+persistent run monitoring, aggregate metric/resource summaries, and indexed chart/LaTeX-table
+builders with saved-spec loading. Chart queries are aggregated on the server rather than
+transferring complete metric histories to the browser.
+
+Reuse a managed training checkpoint without rebuilding its training DAG:
+
+```bash
+ra checkpoint list runs
+ra checkpoint show runs/<study>/<run>/checkpoints/fit/best.pt
+ra infer runs/<study>/<run>/checkpoints/fit/best.pt --split test
+```
+
+For a standalone checkpoint, provide the config that reconstructs its registered model, data, and
+recipe components:
+
+```bash
+ra infer model.pt --config configs/inference.yaml --split test
+```
 
 On an SSH server, use SSH mode and optionally provide the address used from your local machine:
 

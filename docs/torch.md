@@ -13,7 +13,7 @@ experiments without importing PyTorch.
 |---|---|---|
 | `model` | `torch.nn.Module` | architecture and initialized parameters |
 | `data` | `TorchDataLoaders` | re-iterable training and named evaluation loaders |
-| `recipe` | `TorchRecipe` | optimizer plus train/evaluation step semantics |
+| `recipe` | `TorchRecipe` | optimizer plus train/evaluation/prediction semantics |
 | `stage` | built in | lifecycle, reduction, checkpointing, and artifact publication |
 
 `TorchStep` carries an optional differentiable loss, scalar metrics, and a positive weight. The
@@ -48,9 +48,9 @@ trusted run directory.
 ## Evaluation lifecycle
 
 `torch/evaluate` reconstructs the same registered components, resolves a named checkpoint from a
-completed dependency stage, loads the model state, and evaluates selected named splits. Stage-local
-component overrides can replace the data component for OOD, resolution-transfer, or rollout tests
-while reusing the fitted architecture and recipe.
+completed dependency stage or a direct `checkpoint_path`, loads the model state, and evaluates
+selected named splits. Stage-local component overrides can replace the data component for OOD,
+resolution-transfer, or rollout tests while reusing the fitted architecture and recipe.
 
 ```yaml
 stages:
@@ -73,12 +73,47 @@ stages:
       splits: [rollout]
 ```
 
+## Reusing trained checkpoints
+
+Managed checkpoints are discovered from run manifests and completed-stage artifact records:
+
+```bash
+ra checkpoint list runs
+ra checkpoint show runs/<study>/<run>/checkpoints/fit/best.pt
+```
+
+`ra infer` restores the resolved source config and its plugins, verifies that the registered model
+component matches exactly, and creates a new inference study containing only `torch/evaluate`.
+The source study/trial/run and checkpoint path are retained in the new run manifest's provenance.
+
+```bash
+ra infer runs/<study>/<run>/checkpoints/fit/best.pt --split test --device cuda
+```
+
+An external `.pt`, `.pth`, or `.ckpt` has no ResearchAssistant manifest, so its reconstruction
+config must be explicit:
+
+```bash
+ra infer weights/model.pt --config configs/inference.yaml --split ood
+```
+
+Use `--predict` when the recipe defines `predict_step`. `torch/predict` writes one PyTorch file per
+batch and a compact JSON index instead of retaining the complete prediction set in memory:
+
+```bash
+ra infer runs/<study>/<run>/checkpoints/fit/best.pt --split test --predict
+```
+
+As with resume, only load checkpoints produced by a trusted source. PyTorch checkpoint loading can
+deserialize Python-owned state.
+
 ## Deliberate limits
 
 - one process and one device per run;
 - no distributed wrappers or gradient accumulation yet;
 - data-loader/sampler construction and worker seeding remain in the data component;
 - callbacks and external tracking are not embedded in the recipe contract;
+- `torch/predict` requires the project recipe to define how a batch becomes a prediction;
 - AMP is currently CUDA-only.
 
 The next execution layer will launch one run per subprocess and assign CUDA devices outside the

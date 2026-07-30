@@ -54,6 +54,10 @@ the UI deliberately rejects `0.0.0.0` and other remote bindings.
   YAML, and launcher-policy overrides;
 - persistent launch history, per-run state and GPU assignment, progress, and bounded scheduler
   and worker logs;
+- a managed `best`/`last` checkpoint catalog with source run, stage, registered model, size, and
+  modification time;
+- inference preview with exact model-component compatibility checks, split/device/config
+  overrides, external workspace-relative checkpoints, and optional batch-wise prediction export;
 - an arbitrary workspace artifact-root catalog with run states, final-metric summaries, and
   resource summaries;
 - an incremental run/metric catalog for large artifact roots with explicit rebuild;
@@ -64,6 +68,12 @@ the UI deliberately rejects `0.0.0.0` and other remote bindings.
 - runtime diagnostics plus safe project scaffold initialization without overwriting files.
 
 The creator returns an unsaved editor buffer. Saving remains a separate explicit action.
+
+The Checkpoints panel scans a selected artifact root without loading model tensors into the UI
+server. Selecting a managed checkpoint restores its resolved source config and plugin list.
+Standalone `.pt`, `.pth`, and `.ckpt` files require an explicit saved config. Accepted inference
+requests use the same detached scheduler as ordinary launches, so browser or SSH-tunnel loss does
+not interrupt evaluation.
 
 ## Browser launches and SSH resilience
 
