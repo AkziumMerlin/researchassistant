@@ -1,3 +1,3 @@
-from research_assistant.cli import app
+from research_assistant.cli_ext import app
 
 app()
