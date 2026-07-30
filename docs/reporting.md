@@ -55,6 +55,7 @@ seed-level observation or every trial identifier.
 ```yaml
 name: validation-curves
 artifact_root: runs
+chart_type: line
 filters:
   metrics: [val/rel_l2]
   stages: [fit]
@@ -72,6 +73,46 @@ y_label: Relative L2
 
 The UI renders the bounded response directly. `ra report chart` uses the same query and optionally
 exports Matplotlib SVG/PDF/PNG files when `research-assistant[reports]` is installed.
+Use `chart_type: bar` for final-metric comparisons; one bounded aggregate is rendered per selected
+series with the configured uncertainty.
+
+## Validation-selected evaluation
+
+The results workbench can reproduce the common protocol “choose the best validation step for each
+seed, then read the test metric at that exact step.” Selection happens independently per run in
+SQLite; runs without a target observation at the selected step remain visible but are excluded
+from the seed aggregate.
+
+```yaml
+name: validation-selected-results
+artifact_root: runs
+filters:
+  states: [completed]
+selection_metric: val/rel_l2
+target_metric: test/rel_l2
+stage: fit
+selection_split: validation
+target_split: test
+selection_kind: progress
+target_kind: progress
+direction: minimize
+alignment: same_step
+group_by: [dataset, model]
+precision: 4
+table_direction: minimize
+caption: Validation-selected test results
+label: tab:validation-selected
+max_runs: 2000
+```
+
+`alignment: latest` is available for protocols that intentionally read the latest target event,
+but it is not silently substituted when a same-step target is missing. The UI shows selected,
+eligible, and excluded run counts plus the exact selected step and both metric values for every
+run.
+
+An evaluation export contains `spec.yaml`, grouped `data.csv`, complete bounded `data.json`,
+`table.tex`, and `provenance.json`. Provenance records eligible and excluded run IDs separately,
+so a missing or failed seed cannot disappear from a paper table without an audit trail.
 
 ## LaTeX table specifications
 

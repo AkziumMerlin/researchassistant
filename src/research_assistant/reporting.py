@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from research_assistant.analytics import ChartSpec, MetricIndex, TableSpec
+from research_assistant.analytics import ChartSpec, EvaluationSpec, MetricIndex, TableSpec
 from research_assistant.artifacts import atomic_write_json
 from research_assistant.errors import ResearchAssistantError
 
@@ -239,6 +239,84 @@ def render_latex_table(data: dict[str, Any], spec: TableSpec) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_evaluation_latex(data: dict[str, Any], spec: EvaluationSpec) -> str:
+    row_field = spec.group_by[0]
+    column_fields = spec.group_by[1:]
+    cells: dict[tuple[str, str], dict[str, Any]] = {}
+    row_names: set[str] = set()
+    column_names: set[str] = set()
+    for group in data["groups"]:
+        dimensions = group["dimensions"]
+        row_name = str(dimensions[row_field])
+        column_name = (
+            " · ".join(str(dimensions[field]) for field in column_fields)
+            if column_fields
+            else spec.target_metric
+        )
+        row_names.add(row_name)
+        column_names.add(column_name)
+        cells[(row_name, column_name)] = group
+    rows = sorted(row_names)
+    columns = sorted(column_names)
+
+    ranks: dict[tuple[str, str], int] = {}
+    if spec.table_direction != "none":
+        for row_name in rows:
+            observations = [
+                (column, float(cells[(row_name, column)]["mean"]))
+                for column in columns
+                if (row_name, column) in cells
+            ]
+            observations.sort(
+                key=lambda item: item[1],
+                reverse=spec.table_direction == "maximize",
+            )
+            distinct = list(dict.fromkeys(value for _, value in observations))
+            for column, value in observations:
+                ranks[(row_name, column)] = distinct.index(value) + 1
+
+    lines: list[str] = []
+    if spec.caption or spec.label:
+        lines.extend([r"\begin{table}[!ht]", r"\centering"])
+    if spec.caption:
+        lines.append(rf"\caption{{{_latex_escape(spec.caption)}}}")
+    if spec.label:
+        if not re.fullmatch(r"[A-Za-z0-9:._-]+", spec.label):
+            raise ResearchAssistantError("LaTeX labels may contain only letters, digits, : . _ -")
+        lines.append(rf"\label{{{spec.label}}}")
+    lines.extend(
+        [
+            rf"\begin{{tabular}}{{l{'c' * len(columns)}}}",
+            r"\toprule",
+            " & ".join([_latex_escape(row_field), *map(_latex_escape, columns)]) + r" \\",
+            r"\midrule",
+        ]
+    )
+    for row_name in rows:
+        rendered = [_latex_escape(row_name)]
+        for column in columns:
+            cell = cells.get((row_name, column))
+            if cell is None:
+                rendered.append("--")
+                continue
+            content = (
+                rf"{_number(cell['mean'], spec.precision)} \pm "
+                rf"{_number(cell['std'], spec.precision)}"
+            )
+            rank = ranks.get((row_name, column))
+            if spec.bold_best and rank == 1:
+                content = rf"\mathbf{{{content}}}"
+            math_cell = f"${content}$"
+            if spec.underline_second and rank == 2:
+                math_cell = rf"\underline{{{math_cell}}}"
+            rendered.append(math_cell)
+        lines.append(" & ".join(rendered) + r" \\")
+    lines.extend([r"\bottomrule", r"\end{tabular}"])
+    if spec.caption or spec.label:
+        lines.append(r"\end{table}")
+    return "\n".join(lines) + "\n"
+
+
 def _provenance(index: MetricIndex, filters, *, kind: str) -> dict[str, Any]:
     return {
         "schema_version": 1,
@@ -270,6 +348,60 @@ def write_table_bundle(index: MetricIndex, spec: TableSpec, output: str | Path) 
     return output
 
 
+def write_evaluation_bundle(
+    index: MetricIndex,
+    spec: EvaluationSpec,
+    output: str | Path,
+) -> Path:
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    data = index.evaluate(spec)
+    (output / "spec.yaml").write_text(
+        yaml.safe_dump(spec.model_dump(mode="json"), sort_keys=False),
+        encoding="utf-8",
+    )
+    atomic_write_json(output / "data.json", data)
+    provenance = _provenance(index, spec.filters, kind="validation-selected-evaluation")
+    provenance["eligible_run_ids"] = [
+        row["run_id"] for row in data["runs"] if row["eligible"]
+    ]
+    provenance["excluded_run_ids"] = [
+        row["run_id"] for row in data["runs"] if not row["eligible"]
+    ]
+    atomic_write_json(output / "provenance.json", provenance)
+    (output / "table.tex").write_text(
+        render_evaluation_latex(data, spec),
+        encoding="utf-8",
+    )
+    fieldnames = [
+        *spec.group_by,
+        "n",
+        "mean",
+        "std",
+        "minimum",
+        "maximum",
+        "seeds",
+        "run_ids",
+    ]
+    with (output / "data.csv").open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=fieldnames)
+        writer.writeheader()
+        for group in data["groups"]:
+            writer.writerow(
+                {
+                    **group["dimensions"],
+                    "n": group["n"],
+                    "mean": group["mean"],
+                    "std": group["std"],
+                    "minimum": group["minimum"],
+                    "maximum": group["maximum"],
+                    "seeds": ",".join(map(str, group["seeds"])),
+                    "run_ids": ",".join(group["run_ids"]),
+                }
+            )
+    return output
+
+
 def write_chart_bundle(
     index: MetricIndex,
     spec: ChartSpec,
@@ -293,20 +425,41 @@ def write_chart_bundle(
                 "figure export requires research-assistant[reports]"
             ) from exc
         figure, axes = plt.subplots(figsize=(6.4, 4.0), constrained_layout=True)
-        for series in data["series"]:
-            x = [point["x"] for point in series["points"]]
-            y = [point["y"] for point in series["points"]]
-            lower = [point["lower"] for point in series["points"]]
-            upper = [point["upper"] for point in series["points"]]
-            line = axes.plot(x, y, label=series["name"])[0]
-            if spec.uncertainty != "none":
-                axes.fill_between(x, lower, upper, color=line.get_color(), alpha=0.18, linewidth=0)
-        axes.set_xlabel(spec.x_label)
+        if spec.chart_type == "bar":
+            observations = [
+                (series["name"], series["points"][-1])
+                for series in data["series"]
+                if series["points"]
+            ]
+            names = [name for name, _ in observations]
+            values = [point["y"] for _, point in observations]
+            lower = [point["y"] - point["lower"] for _, point in observations]
+            upper = [point["upper"] - point["y"] for _, point in observations]
+            axes.bar(
+                names,
+                values,
+                yerr=[lower, upper] if spec.uncertainty != "none" else None,
+                capsize=3,
+            )
+            axes.tick_params(axis="x", rotation=25)
+            axes.set_xlabel(spec.group_by.replace("_", " "))
+        else:
+            for series in data["series"]:
+                x = [point["x"] for point in series["points"]]
+                y = [point["y"] for point in series["points"]]
+                lower = [point["lower"] for point in series["points"]]
+                upper = [point["upper"] for point in series["points"]]
+                line = axes.plot(x, y, label=series["name"])[0]
+                if spec.uncertainty != "none":
+                    axes.fill_between(
+                        x, lower, upper, color=line.get_color(), alpha=0.18, linewidth=0
+                    )
+            axes.set_xlabel(spec.x_label)
         axes.set_ylabel(spec.y_label or ", ".join(spec.filters.metrics) or "value")
         axes.set_yscale(spec.y_scale)
         if spec.title:
             axes.set_title(spec.title)
-        if data["series"]:
+        if data["series"] and spec.chart_type == "line":
             axes.legend(frameon=False)
         axes.grid(alpha=0.2)
         for file_format in formats:

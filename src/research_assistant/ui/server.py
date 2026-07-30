@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from research_assistant import __version__
 from research_assistant.analytics import (
     ChartSpec,
+    EvaluationSpec,
     MetricIndex,
     TableSpec,
     bounded_artifact_root,
@@ -37,8 +38,10 @@ from research_assistant.registry import Registry
 from research_assistant.reporting import (
     collect_resource_summary,
     collect_summary,
+    render_evaluation_latex,
     render_latex_table,
     write_chart_bundle,
+    write_evaluation_bundle,
     write_table_bundle,
 )
 from research_assistant.scaffold import initialize_project
@@ -121,6 +124,11 @@ class ChartExportRequest(UiModel):
 
 class TableExportRequest(UiModel):
     spec: TableSpec
+    output_path: str | None = None
+
+
+class EvaluationExportRequest(UiModel):
+    spec: EvaluationSpec
     output_path: str | None = None
 
 
@@ -623,6 +631,25 @@ def create_app(
         refresh = index.refresh()
         table = index.table(spec)
         return {"refresh": refresh, "table": table, "latex": render_latex_table(table, spec)}
+
+    @app.post("/api/analytics/evaluate")
+    def analytics_evaluate(spec: EvaluationSpec) -> dict[str, Any]:
+        index = analytics_index(spec.artifact_root)
+        refresh = index.refresh()
+        evaluation = index.evaluate(spec)
+        return {
+            "refresh": refresh,
+            "evaluation": evaluation,
+            "latex": render_evaluation_latex(evaluation, spec),
+        }
+
+    @app.post("/api/analytics/evaluation/export")
+    def export_evaluation(payload: EvaluationExportRequest) -> dict[str, Any]:
+        index = analytics_index(payload.spec.artifact_root)
+        index.refresh()
+        destination = report_destination(payload.spec.name, payload.output_path)
+        write_evaluation_bundle(index, payload.spec, destination)
+        return {"path": destination.relative_to(workspace.root).as_posix()}
 
     @app.post("/api/analytics/chart/export")
     def analytics_chart_export(payload: ChartExportRequest) -> dict[str, Any]:

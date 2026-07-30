@@ -3,14 +3,22 @@ from pathlib import Path
 
 import pytest
 
-from research_assistant.analytics import ChartSpec, MetricFilter, MetricIndex, TableSpec
+from research_assistant.analytics import (
+    ChartSpec,
+    EvaluationSpec,
+    MetricFilter,
+    MetricIndex,
+    TableSpec,
+)
 from research_assistant.config import parse_config
 from research_assistant.execution import execute_run
 from research_assistant.planning import compile_plan
 from research_assistant.plugins import load_registry
 from research_assistant.reporting import (
+    render_evaluation_latex,
     render_latex_table,
     write_chart_bundle,
+    write_evaluation_bundle,
     write_table_bundle,
 )
 
@@ -72,6 +80,110 @@ def test_incremental_index_chart_and_table(tmp_path: Path) -> None:
         index.close()
 
 
+def test_validation_selected_evaluation_aggregates_target_at_same_step(tmp_path: Path) -> None:
+    for seed, target in [(0, 0.2), (1, 0.3), (2, None)]:
+        run_id = f"run-{seed}"
+        run_dir = tmp_path / "study" / run_id
+        run_dir.mkdir(parents=True)
+        (run_dir / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "study_id": "study",
+                    "trial_id": "trial",
+                    "run_id": run_id,
+                    "config": {
+                        "seed": seed,
+                        "components": {
+                            "model": {"type": "example/model"},
+                            "data": {"type": "example/dataset"},
+                        },
+                    },
+                    "assignments": {"seed": seed},
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_dir / "status.json").write_text(
+            json.dumps({"state": "completed"}),
+            encoding="utf-8",
+        )
+        events = []
+        sequence = 0
+        for step, validation in [(0, 0.5), (1, 0.1), (2, 0.4)]:
+            sequence += 1
+            events.append(
+                {
+                    "schema_version": 1,
+                    "event_id": f"{run_id}-val-{step}",
+                    "timestamp": "2026-07-30T00:00:00+00:00",
+                    "run_id": run_id,
+                    "attempt": 1,
+                    "sequence": sequence,
+                    "stage": "fit",
+                    "kind": "progress",
+                    "metric": "val/l2",
+                    "value": validation,
+                    "step": step,
+                    "step_kind": "epoch",
+                    "dimensions": {"dataset": "benchmark", "split": "val"},
+                }
+            )
+        if target is not None:
+            sequence += 1
+            events.append(
+                {
+                    "schema_version": 1,
+                    "event_id": f"{run_id}-test-1",
+                    "timestamp": "2026-07-30T00:00:00+00:00",
+                    "run_id": run_id,
+                    "attempt": 1,
+                    "sequence": sequence,
+                    "stage": "fit",
+                    "kind": "progress",
+                    "metric": "test/l2",
+                    "value": target,
+                    "step": 1,
+                    "step_kind": "epoch",
+                    "dimensions": {"dataset": "benchmark", "split": "test"},
+                }
+            )
+        (run_dir / "metrics.jsonl").write_text(
+            "".join(f"{json.dumps(event)}\n" for event in events),
+            encoding="utf-8",
+        )
+
+    index = MetricIndex(tmp_path)
+    try:
+        index.refresh()
+        spec = EvaluationSpec(
+            name="selected-results",
+            selection_metric="val/l2",
+            target_metric="test/l2",
+            selection_split="val",
+            target_split="test",
+            group_by=["dataset", "model"],
+            caption="Validation-selected results",
+            label="tab:selected",
+        )
+        result = index.evaluate(spec)
+        assert result["selected_runs"] == 3
+        assert result["eligible_runs"] == 2
+        assert result["excluded_runs"] == 1
+        assert result["groups"][0]["mean"] == pytest.approx(0.25)
+        assert result["groups"][0]["std"] == pytest.approx(0.05 * 2**0.5)
+        assert result["groups"][0]["seeds"] == [0, 1]
+        assert all(row["selected_step"] == 1 for row in result["runs"])
+        latex = render_evaluation_latex(result, spec)
+        assert "Validation-selected results" in latex
+        bundle = write_evaluation_bundle(index, spec, tmp_path / "selected-report")
+        assert (bundle / "table.tex").is_file()
+        provenance = json.loads((bundle / "provenance.json").read_text())
+        assert len(provenance["eligible_run_ids"]) == 2
+        assert len(provenance["excluded_run_ids"]) == 1
+    finally:
+        index.close()
+
+
 def test_index_waits_for_complete_jsonl_line(tmp_path: Path) -> None:
     completed_runs(tmp_path)
     metrics_path = next(tmp_path.glob("*/*/metrics.jsonl"))
@@ -112,6 +224,7 @@ def test_chart_bundle_renders_vector_and_document_formats(tmp_path: Path) -> Non
         index.refresh()
         spec = ChartSpec(
             filters=MetricFilter(metrics=["test/error"], kinds=["final"]),
+            chart_type="bar",
             title="Indexed results",
         )
         bundle = write_chart_bundle(
@@ -218,6 +331,17 @@ def test_many_run_index_is_incremental_and_chart_payload_is_bounded(tmp_path: Pa
                 max_columns=5,
             )
         )
+        evaluation = reopened.evaluate(
+            EvaluationSpec(
+                selection_metric="val/loss",
+                target_metric="val/loss",
+                group_by=["model"],
+                max_runs=25,
+            )
+        )
+        assert evaluation["selected_runs"] == 25
+        assert evaluation["eligible_runs"] == 25
+        assert evaluation["truncated"] is True
         assert table["row_total"] == runs
         assert len(table["rows"]) == 15
         assert table["truncated"] is True

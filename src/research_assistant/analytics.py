@@ -5,12 +5,13 @@ import json
 import math
 import os
 import sqlite3
+import statistics
 import threading
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from research_assistant.errors import ResearchAssistantError
 
@@ -48,6 +49,7 @@ class ChartSpec(AnalyticsModel):
     name: str = "chart"
     artifact_root: str = "runs"
     filters: MetricFilter = Field(default_factory=MetricFilter)
+    chart_type: Literal["line", "bar"] = "line"
     group_by: Literal[
         "study_id", "trial_id", "run_id", "stage", "metric", "seed", "model", "dataset", "split"
     ] = "trial_id"
@@ -81,6 +83,50 @@ class TableSpec(AnalyticsModel):
     missing: str = "--"
     max_rows: int = Field(default=100, ge=1, le=1000)
     max_columns: int = Field(default=50, ge=1, le=500)
+
+
+EvaluationGroupField = Literal[
+    "study_id", "trial_id", "stage", "model", "dataset", "split"
+]
+
+
+class EvaluationSpec(AnalyticsModel):
+    """Select a checkpoint step per run, then aggregate a target metric across runs."""
+
+    name: str = "evaluation"
+    artifact_root: str = "runs"
+    filters: MetricFilter = Field(default_factory=lambda: MetricFilter(states=["completed"]))
+    selection_metric: str
+    target_metric: str
+    stage: str | None = None
+    selection_split: str | None = None
+    target_split: str | None = None
+    selection_kind: Literal["progress", "final"] = "progress"
+    target_kind: Literal["progress", "final"] = "progress"
+    direction: Literal["minimize", "maximize"] = "minimize"
+    alignment: Literal["same_step", "latest"] = "same_step"
+    group_by: list[EvaluationGroupField] = Field(
+        default_factory=lambda: ["dataset", "model"],
+        min_length=1,
+        max_length=3,
+    )
+    precision: int = Field(default=4, ge=1, le=10)
+    table_direction: Literal["minimize", "maximize", "none"] = "minimize"
+    bold_best: bool = True
+    underline_second: bool = False
+    caption: str | None = None
+    label: str | None = None
+    max_runs: int = Field(default=2000, ge=1, le=10000)
+
+    @field_validator("group_by")
+    @classmethod
+    def unique_group_fields(
+        cls,
+        value: list[EvaluationGroupField],
+    ) -> list[EvaluationGroupField]:
+        if len(value) != len(set(value)):
+            raise ValueError("evaluation group_by fields must be unique")
+        return value
 
 
 def _iter_run_directories(root: Path) -> Iterator[Path]:
@@ -604,6 +650,118 @@ class MetricIndex:
             "row_total": row_total,
             "column_total": column_total,
             "truncated": row_total > len(row_names) or column_total > len(column_names),
+        }
+
+    def evaluate(self, spec: EvaluationSpec) -> dict[str, Any]:
+        """Apply validation-selected evaluation without loading run histories into the browser."""
+        base_filters = spec.filters.model_copy(
+            update={"metrics": [], "kinds": [], "stages": [], "splits": []}
+        )
+        where, parameters = self._where(base_filters)
+        selection_clauses = ["e.metric = ?", "e.kind = ?"]
+        selection_parameters: list[Any] = [spec.selection_metric, spec.selection_kind]
+        if spec.stage is not None:
+            selection_clauses.append("e.stage = ?")
+            selection_parameters.append(spec.stage)
+        if spec.selection_split is not None:
+            selection_clauses.append("COALESCE(e.split, 'unknown') = ?")
+            selection_parameters.append(spec.selection_split)
+
+        target_clauses = ["t.metric = ?", "t.kind = ?", "t.stage = s.stage"]
+        target_parameters: list[Any] = [spec.target_metric, spec.target_kind]
+        if spec.target_split is not None:
+            target_clauses.append("COALESCE(t.split, 'unknown') = ?")
+            target_parameters.append(spec.target_split)
+        if spec.alignment == "same_step":
+            target_clauses.append("t.step IS s.step")
+            target_order = "t.sequence DESC"
+        else:
+            target_order = "COALESCE(t.step, -1) DESC, t.sequence DESC"
+
+        direction = "ASC" if spec.direction == "minimize" else "DESC"
+        query = f"""
+            WITH ranked_selection AS (
+                SELECT e.run_id, e.stage, e.step, e.step_kind, e.value,
+                       e.dataset, e.split,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY e.run_id
+                           ORDER BY e.value {direction}, COALESCE(e.step, -1) DESC,
+                                    e.sequence DESC
+                       ) AS selection_rank
+                FROM metric_events e JOIN runs r ON r.run_id=e.run_id
+                WHERE {where} AND {" AND ".join(selection_clauses)}
+            ), selected AS (
+                SELECT * FROM ranked_selection WHERE selection_rank = 1
+            )
+            SELECT r.study_id, r.trial_id, r.run_id, r.seed, r.state,
+                   COALESCE(r.model, r.trial_id) AS model,
+                   COALESCE(s.dataset, r.dataset, 'unknown') AS dataset,
+                   COALESCE(s.split, 'unknown') AS split,
+                   s.stage, s.step AS selected_step, s.step_kind,
+                   s.value AS selection_value,
+                   (
+                       SELECT t.value FROM metric_events t
+                       WHERE t.run_id=s.run_id AND {" AND ".join(target_clauses)}
+                       ORDER BY {target_order} LIMIT 1
+                   ) AS target_value
+            FROM selected s JOIN runs r ON r.run_id=s.run_id
+            ORDER BY r.study_id, r.trial_id, r.seed, r.run_id
+            LIMIT ?
+        """
+        with self._lock:
+            rows = self._connection.execute(
+                query,
+                [
+                    *parameters,
+                    *selection_parameters,
+                    *target_parameters,
+                    spec.max_runs + 1,
+                ],
+            ).fetchall()
+
+        truncated = len(rows) > spec.max_runs
+        rows = rows[: spec.max_runs]
+        run_rows: list[dict[str, Any]] = []
+        grouped: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+        for raw in rows:
+            row = dict(raw)
+            row["eligible"] = row["target_value"] is not None
+            row["reason"] = None if row["eligible"] else "target metric missing at selected step"
+            run_rows.append(row)
+            if not row["eligible"]:
+                continue
+            key = tuple(str(row[field]) for field in spec.group_by)
+            grouped.setdefault(key, []).append(row)
+
+        groups: list[dict[str, Any]] = []
+        for key, observations in sorted(grouped.items()):
+            values = [float(row["target_value"]) for row in observations]
+            dimensions = dict(zip(spec.group_by, key, strict=True))
+            groups.append(
+                {
+                    "label": " · ".join(key),
+                    "dimensions": dimensions,
+                    "n": len(values),
+                    "mean": statistics.fmean(values),
+                    "std": statistics.stdev(values) if len(values) > 1 else 0.0,
+                    "minimum": min(values),
+                    "maximum": max(values),
+                    "seeds": sorted(
+                        row["seed"] for row in observations if row["seed"] is not None
+                    ),
+                    "run_ids": [str(row["run_id"]) for row in observations],
+                }
+            )
+
+        eligible = sum(bool(row["eligible"]) for row in run_rows)
+        return {
+            "spec": spec.model_dump(mode="json"),
+            "runs": run_rows,
+            "groups": groups,
+            "selected_runs": len(run_rows),
+            "eligible_runs": eligible,
+            "excluded_runs": len(run_rows) - eligible,
+            "truncated": truncated,
         }
 
 

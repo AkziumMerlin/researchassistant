@@ -47,6 +47,8 @@ const state = {
   launchRefreshPending: false,
   checkpoints: [],
   selectedCheckpointPath: null,
+  currentTableLatex: "",
+  currentEvaluationLatex: "",
 };
 
 const elements = Object.fromEntries(
@@ -148,9 +150,19 @@ const elements = Object.fromEntries(
     "analytics-summary",
     "analytics-error",
     "analytics-overview-tab",
+    "analytics-evaluation-tab",
     "analytics-builders-tab",
     "analytics-overview-panel",
+    "analytics-evaluation-panel",
     "analytics-builders-panel",
+    "active-filter-count",
+    "filter-studies",
+    "filter-trials",
+    "filter-models",
+    "filter-datasets",
+    "filter-splits",
+    "filter-states",
+    "clear-analytics-filters",
     "overview-stage",
     "overview-metric",
     "overview-trials",
@@ -161,6 +173,33 @@ const elements = Object.fromEntries(
     "overview-runs",
     "overview-summary",
     "overview-resources",
+    "evaluation-selection-metric",
+    "evaluation-target-metric",
+    "evaluation-stage",
+    "evaluation-selection-split",
+    "evaluation-target-split",
+    "evaluation-direction",
+    "evaluation-alignment",
+    "evaluation-group-primary",
+    "evaluation-group-secondary",
+    "evaluation-max-runs",
+    "evaluation-precision",
+    "evaluation-table-direction",
+    "evaluation-name",
+    "evaluation-label",
+    "evaluation-caption",
+    "evaluation-output",
+    "run-evaluation",
+    "copy-evaluation-latex",
+    "export-evaluation",
+    "evaluation-selected-count",
+    "evaluation-eligible-count",
+    "evaluation-excluded-count",
+    "evaluation-group-count",
+    "evaluation-provenance",
+    "evaluation-groups",
+    "evaluation-runs",
+    "evaluation-latex",
     "report-spec-path",
     "report-spec-kind",
     "load-report-spec",
@@ -168,7 +207,9 @@ const elements = Object.fromEntries(
     "chart-metric",
     "chart-stage",
     "chart-kind",
+    "chart-type",
     "chart-group",
+    "chart-aggregate",
     "chart-uncertainty",
     "chart-scale",
     "chart-points",
@@ -184,6 +225,7 @@ const elements = Object.fromEntries(
     "table-stage",
     "table-row",
     "table-column",
+    "table-aggregate",
     "table-direction",
     "table-precision",
     "table-rows",
@@ -192,7 +234,9 @@ const elements = Object.fromEntries(
     "table-caption",
     "table-output",
     "preview-table",
+    "copy-table-latex",
     "export-table",
+    "table-visual-preview",
     "table-preview",
     "project-dialog",
     "close-project-dialog",
@@ -1469,6 +1513,56 @@ function replaceOptions(select, values, { optional = false } = {}) {
   if ([...select.options].some((option) => option.value === previous)) select.value = previous;
 }
 
+function replaceMultiOptions(select, values) {
+  const selected = new Set([...select.selectedOptions].map((option) => option.value));
+  select.replaceChildren();
+  for (const value of values) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    option.selected = selected.has(String(value));
+    select.append(option);
+  }
+}
+
+function selectedValues(id) {
+  return [...elements[id].selectedOptions].map((option) => option.value);
+}
+
+function commonMetricFilters() {
+  return {
+    study_ids: selectedValues("filter-studies"),
+    trial_ids: selectedValues("filter-trials"),
+    models: selectedValues("filter-models"),
+    datasets: selectedValues("filter-datasets"),
+    splits: selectedValues("filter-splits"),
+    states: selectedValues("filter-states"),
+  };
+}
+
+function updateActiveFilterCount() {
+  const count = Object.values(commonMetricFilters()).reduce(
+    (total, values) => total + values.length,
+    0,
+  );
+  elements["active-filter-count"].textContent =
+    count === 0 ? "all indexed data" : `${count} active value${count === 1 ? "" : "s"}`;
+}
+
+function clearAnalyticsFilters() {
+  for (const id of [
+    "filter-studies",
+    "filter-trials",
+    "filter-models",
+    "filter-datasets",
+    "filter-splits",
+    "filter-states",
+  ]) {
+    for (const option of elements[id].options) option.selected = false;
+  }
+  updateActiveFilterCount();
+}
+
 function renderDataTable(host, rows, columns) {
   host.replaceChildren();
   if (!rows.length) {
@@ -1578,6 +1672,10 @@ async function refreshRunOverview() {
 async function refreshAnalytics(rebuild = false) {
   elements["analytics-error"].textContent = "";
   elements["analytics-summary"].textContent = "Indexing metric tails…";
+  const previousSelectionMetric = elements["evaluation-selection-metric"].value;
+  const previousTargetMetric = elements["evaluation-target-metric"].value;
+  const previousSelectionSplit = elements["evaluation-selection-split"].value;
+  const previousTargetSplit = elements["evaluation-target-split"].value;
   const result = await api("/api/analytics/catalog", {
     method: "POST",
     body: JSON.stringify({
@@ -1588,10 +1686,48 @@ async function refreshAnalytics(rebuild = false) {
   state.analyticsCatalog = result.catalog;
   replaceOptions(elements["chart-metric"], result.catalog.metrics);
   replaceOptions(elements["table-metric"], result.catalog.metrics);
+  replaceOptions(elements["evaluation-selection-metric"], result.catalog.metrics);
+  replaceOptions(elements["evaluation-target-metric"], result.catalog.metrics);
   replaceOptions(elements["chart-stage"], result.catalog.stages, { optional: true });
   replaceOptions(elements["table-stage"], result.catalog.stages, { optional: true });
+  replaceOptions(elements["evaluation-stage"], result.catalog.stages, { optional: true });
+  replaceOptions(elements["evaluation-selection-split"], result.catalog.splits, {
+    optional: true,
+  });
+  replaceOptions(elements["evaluation-target-split"], result.catalog.splits, { optional: true });
+  if (!previousSelectionMetric) {
+    selectIfPresent(
+      elements["evaluation-selection-metric"],
+      result.catalog.metrics.find((metric) => /(^|[/_])val(idation)?([/_]|$)/i.test(metric)),
+    );
+  }
+  if (!previousTargetMetric) {
+    selectIfPresent(
+      elements["evaluation-target-metric"],
+      result.catalog.metrics.find((metric) => /(^|[/_])test([/_]|$)/i.test(metric)),
+    );
+  }
+  if (!previousSelectionSplit) {
+    selectIfPresent(
+      elements["evaluation-selection-split"],
+      result.catalog.splits.find((split) => /^val(idation)?$/i.test(split)),
+    );
+  }
+  if (!previousTargetSplit) {
+    selectIfPresent(
+      elements["evaluation-target-split"],
+      result.catalog.splits.find((split) => /^test$/i.test(split)),
+    );
+  }
   replaceOptions(elements["overview-metric"], result.catalog.metrics, { optional: true });
   replaceOptions(elements["overview-stage"], result.catalog.stages, { optional: true });
+  replaceMultiOptions(elements["filter-studies"], result.catalog.studies);
+  replaceMultiOptions(elements["filter-trials"], result.catalog.trials);
+  replaceMultiOptions(elements["filter-models"], result.catalog.models);
+  replaceMultiOptions(elements["filter-datasets"], result.catalog.datasets);
+  replaceMultiOptions(elements["filter-splits"], result.catalog.splits);
+  replaceMultiOptions(elements["filter-states"], result.catalog.states);
+  updateActiveFilterCount();
   elements["analytics-summary"].textContent =
     `${result.catalog.run_count} runs · ${result.catalog.event_count} events · ` +
     `${result.refresh.events_indexed} new`;
@@ -1610,10 +1746,14 @@ async function openAnalytics() {
 
 function showAnalyticsPanel(kind) {
   const overview = kind === "overview";
+  const evaluation = kind === "evaluation";
+  const builders = kind === "builders";
   elements["analytics-overview-panel"].hidden = !overview;
-  elements["analytics-builders-panel"].hidden = overview;
+  elements["analytics-evaluation-panel"].hidden = !evaluation;
+  elements["analytics-builders-panel"].hidden = !builders;
   elements["analytics-overview-tab"].classList.toggle("active", overview);
-  elements["analytics-builders-tab"].classList.toggle("active", !overview);
+  elements["analytics-evaluation-tab"].classList.toggle("active", evaluation);
+  elements["analytics-builders-tab"].classList.toggle("active", builders);
 }
 
 function selectIfPresent(select, value) {
@@ -1623,18 +1763,37 @@ function selectIfPresent(select, value) {
   }
 }
 
+function applyCommonFilters(filters = {}) {
+  const mapping = {
+    "filter-studies": filters.study_ids || [],
+    "filter-trials": filters.trial_ids || [],
+    "filter-models": filters.models || [],
+    "filter-datasets": filters.datasets || [],
+    "filter-splits": filters.splits || [],
+    "filter-states": filters.states || [],
+  };
+  for (const [id, values] of Object.entries(mapping)) {
+    const selected = new Set(values.map(String));
+    for (const option of elements[id].options) option.selected = selected.has(option.value);
+  }
+  updateActiveFilterCount();
+}
+
 function applyChartSpec(spec) {
   elements["analytics-root"].value = spec.artifact_root || "runs";
   elements["chart-name"].value = spec.name || "chart";
   selectIfPresent(elements["chart-metric"], spec.filters?.metrics?.[0]);
   selectIfPresent(elements["chart-stage"], spec.filters?.stages?.[0] || "");
   selectIfPresent(elements["chart-kind"], spec.filters?.kinds?.[0] || "progress");
+  selectIfPresent(elements["chart-type"], spec.chart_type || "line");
   selectIfPresent(elements["chart-group"], spec.group_by);
+  selectIfPresent(elements["chart-aggregate"], spec.aggregate);
   selectIfPresent(elements["chart-uncertainty"], spec.uncertainty);
   selectIfPresent(elements["chart-scale"], spec.y_scale);
   elements["chart-points"].value = String(spec.max_points ?? 1000);
   elements["chart-series"].value = String(spec.max_series ?? 50);
   elements["chart-title"].value = spec.title || "";
+  applyCommonFilters(spec.filters);
 }
 
 function applyTableSpec(spec) {
@@ -1644,12 +1803,14 @@ function applyTableSpec(spec) {
   selectIfPresent(elements["table-stage"], spec.filters?.stages?.[0] || "");
   selectIfPresent(elements["table-row"], spec.row);
   selectIfPresent(elements["table-column"], spec.column);
+  selectIfPresent(elements["table-aggregate"], spec.aggregate);
   selectIfPresent(elements["table-direction"], spec.direction);
   elements["table-precision"].value = String(spec.precision ?? 4);
   elements["table-rows"].value = String(spec.max_rows ?? 100);
   elements["table-columns"].value = String(spec.max_columns ?? 50);
   elements["table-label"].value = spec.label || "";
   elements["table-caption"].value = spec.caption || "";
+  applyCommonFilters(spec.filters);
 }
 
 async function loadReportSpec() {
@@ -1693,12 +1854,14 @@ function chartSpec() {
     artifact_root: elements["analytics-root"].value.trim() || "runs",
     filters: {
       ...(base.filters || {}),
+      ...commonMetricFilters(),
       metrics: keep(base.filters?.metrics, metric),
       stages: keep(base.filters?.stages, stage),
       kinds: keep(base.filters?.kinds, elements["chart-kind"].value),
     },
+    chart_type: elements["chart-type"].value,
     group_by: elements["chart-group"].value,
-    aggregate: base.aggregate || "mean",
+    aggregate: elements["chart-aggregate"].value,
     uncertainty: elements["chart-uncertainty"].value,
     max_points: Number(elements["chart-points"].value),
     max_series: Number(elements["chart-series"].value),
@@ -1713,6 +1876,112 @@ function svgElement(name, attributes = {}) {
   const node = document.createElementNS("http://www.w3.org/2000/svg", name);
   for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
   return node;
+}
+
+function renderBarChart(host, chart, logScale) {
+  const observations = chart.series
+    .filter((series) => series.points.length)
+    .map((series) => ({ name: series.name, ...series.points.at(-1) }))
+    .filter((point) => !logScale || point.y > 0);
+  if (!observations.length) {
+    host.textContent = logScale ? "Log scale requires positive values." : "No matching values.";
+    return;
+  }
+  const width = 900;
+  const height = 380;
+  const padding = { left: 70, right: 24, top: 38, bottom: 92 };
+  const transform = (value) =>
+    logScale ? Math.log10(Math.max(Number(value), 1e-300)) : Number(value);
+  const lowerValues = observations.map((point) => transform(point.lower));
+  const upperValues = observations.map((point) => transform(point.upper));
+  let yMin = logScale ? Math.min(...lowerValues) : Math.min(0, ...lowerValues);
+  let yMax = Math.max(...upperValues);
+  if (yMin === yMax) yMax = yMin + 1;
+  const sy = (value) =>
+    height -
+    padding.bottom -
+    ((transform(value) - yMin) / (yMax - yMin)) * (height - padding.top - padding.bottom);
+  const plotWidth = width - padding.left - padding.right;
+  const slot = plotWidth / observations.length;
+  const barWidth = Math.max(4, Math.min(54, slot * 0.64));
+  const baseline = sy(logScale ? 10 ** yMin : 0);
+  const svg = svgElement("svg", { viewBox: `0 0 ${width} ${height}`, role: "img" });
+  svg.append(
+    svgElement("line", {
+      x1: padding.left,
+      y1: baseline,
+      x2: width - padding.right,
+      y2: baseline,
+      class: "chart-axis",
+    }),
+  );
+  svg.append(
+    svgElement("line", {
+      x1: padding.left,
+      y1: padding.top,
+      x2: padding.left,
+      y2: height - padding.bottom,
+      class: "chart-axis",
+    }),
+  );
+  const colors = ["#7ce5b2", "#79a9ff", "#f3ca78", "#dd8cff", "#ff8c84", "#91d7e3"];
+  observations.forEach((point, index) => {
+    const center = padding.left + slot * (index + 0.5);
+    const top = sy(point.y);
+    const rectangle = svgElement("rect", {
+      x: center - barWidth / 2,
+      y: Math.min(top, baseline),
+      width: barWidth,
+      height: Math.max(1, Math.abs(baseline - top)),
+      rx: 3,
+      fill: colors[index % colors.length],
+      opacity: 0.86,
+    });
+    const tooltip = svgElement("title");
+    tooltip.textContent = `${point.name}: ${Number(point.y).toPrecision(5)} (n=${point.n})`;
+    rectangle.append(tooltip);
+    svg.append(rectangle);
+    if (chart.spec.uncertainty !== "none") {
+      const upper = sy(point.upper);
+      const lower = sy(Math.max(point.lower, logScale ? 1e-300 : -Infinity));
+      svg.append(
+        svgElement("line", {
+          x1: center,
+          y1: upper,
+          x2: center,
+          y2: lower,
+          class: "chart-error",
+        }),
+        svgElement("line", {
+          x1: center - 5,
+          y1: upper,
+          x2: center + 5,
+          y2: upper,
+          class: "chart-error",
+        }),
+        svgElement("line", {
+          x1: center - 5,
+          y1: lower,
+          x2: center + 5,
+          y2: lower,
+          class: "chart-error",
+        }),
+      );
+    }
+    const label = svgElement("text", {
+      x: center,
+      y: height - padding.bottom + 15,
+      transform: `rotate(-32 ${center} ${height - padding.bottom + 15})`,
+      "text-anchor": "end",
+      class: "chart-category",
+    });
+    label.textContent = point.name;
+    svg.append(label);
+  });
+  const title = svgElement("text", { x: padding.left, y: 21, class: "chart-title" });
+  title.textContent = chart.spec.title || chart.spec.y_label || "metric";
+  svg.append(title);
+  host.append(svg);
 }
 
 function renderChart(chart) {
@@ -1735,6 +2004,10 @@ function renderChart(chart) {
   const valid = all.filter((point) => !logScale || point.y > 0);
   if (!valid.length) {
     host.textContent = "Log scale requires positive values.";
+    return;
+  }
+  if (chart.spec.chart_type === "bar") {
+    renderBarChart(host, chart, logScale);
     return;
   }
   const width = 900;
@@ -1789,6 +2062,119 @@ async function previewChart() {
   }
 }
 
+function evaluationSpec() {
+  const selectionMetric = elements["evaluation-selection-metric"].value;
+  const targetMetric = elements["evaluation-target-metric"].value;
+  if (!selectionMetric || !targetMetric) {
+    throw new Error("Select both a validation/selection metric and a target metric");
+  }
+  const primary = elements["evaluation-group-primary"].value;
+  const secondary = elements["evaluation-group-secondary"].value;
+  const groupBy = [...new Set([primary, secondary].filter(Boolean))];
+  const filters = commonMetricFilters();
+  if (!filters.states.length) filters.states = ["completed"];
+  return {
+    name: elements["evaluation-name"].value.trim() || "evaluation",
+    artifact_root: elements["analytics-root"].value.trim() || "runs",
+    filters,
+    selection_metric: selectionMetric,
+    target_metric: targetMetric,
+    stage: elements["evaluation-stage"].value || null,
+    selection_split: elements["evaluation-selection-split"].value || null,
+    target_split: elements["evaluation-target-split"].value || null,
+    direction: elements["evaluation-direction"].value,
+    alignment: elements["evaluation-alignment"].value,
+    group_by: groupBy,
+    precision: Number(elements["evaluation-precision"].value) || 4,
+    table_direction: elements["evaluation-table-direction"].value,
+    caption: elements["evaluation-caption"].value.trim() || null,
+    label: elements["evaluation-label"].value.trim() || null,
+    max_runs: Number(elements["evaluation-max-runs"].value) || 2000,
+  };
+}
+
+async function runEvaluation() {
+  elements["analytics-error"].textContent = "";
+  elements["run-evaluation"].disabled = true;
+  elements["run-evaluation"].textContent = "Evaluating…";
+  try {
+    const spec = evaluationSpec();
+    const result = await api("/api/analytics/evaluate", {
+      method: "POST",
+      body: JSON.stringify(spec),
+    });
+    const evaluation = result.evaluation;
+    state.currentEvaluationLatex = result.latex;
+    elements["evaluation-latex"].textContent = result.latex;
+    elements["evaluation-selected-count"].textContent = String(evaluation.selected_runs);
+    elements["evaluation-eligible-count"].textContent = String(evaluation.eligible_runs);
+    elements["evaluation-excluded-count"].textContent = String(evaluation.excluded_runs);
+    elements["evaluation-group-count"].textContent = String(evaluation.groups.length);
+    elements["evaluation-provenance"].textContent =
+      `${spec.selection_metric} → ${spec.target_metric} · ` +
+      `${spec.alignment === "same_step" ? "same step" : "latest target"}` +
+      `${evaluation.truncated ? " · truncated" : ""}`;
+    renderDataTable(elements["evaluation-groups"], evaluation.groups, [
+      { key: "label", label: spec.group_by.join(" / ") },
+      { key: "n", label: "Seeds" },
+      { key: "mean", label: "Mean", format: (value) => fixed(value, 6) },
+      { key: "std", label: "Std", format: (value) => fixed(value, 6) },
+      { key: "minimum", label: "Min", format: (value) => fixed(value, 6) },
+      { key: "maximum", label: "Max", format: (value) => fixed(value, 6) },
+      { key: "seeds", label: "Seed IDs", format: (value) => value.join(", ") },
+    ]);
+    renderDataTable(elements["evaluation-runs"], evaluation.runs, [
+      { key: "eligible", label: "Use", format: (value) => (value ? "yes" : "excluded") },
+      { key: "trial_id", label: "Trial" },
+      { key: "run_id", label: "Run" },
+      { key: "seed", label: "Seed" },
+      { key: "selected_step", label: "Best step" },
+      { key: "selection_value", label: "Selection", format: (value) => fixed(value, 6) },
+      { key: "target_value", label: "Target", format: (value) => fixed(value, 6) },
+      { key: "reason", label: "Reason" },
+    ]);
+  } catch (error) {
+    elements["analytics-error"].textContent = error.message || String(error);
+  } finally {
+    elements["run-evaluation"].disabled = false;
+    elements["run-evaluation"].textContent = "Evaluate runs";
+  }
+}
+
+async function copyEvaluationLatex() {
+  if (!state.currentEvaluationLatex) {
+    elements["analytics-error"].textContent = "Evaluate runs before copying LaTeX.";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(state.currentEvaluationLatex);
+    setOutput(
+      "Evaluation LaTeX copied",
+      `${state.currentEvaluationLatex.length} characters`,
+      "success",
+    );
+  } catch (error) {
+    elements["analytics-error"].textContent = `Could not copy LaTeX: ${error.message || error}`;
+  }
+}
+
+async function exportEvaluation() {
+  elements["analytics-error"].textContent = "";
+  try {
+    const result = await api("/api/analytics/evaluation/export", {
+      method: "POST",
+      body: JSON.stringify({
+        spec: evaluationSpec(),
+        output_path: elements["evaluation-output"].value.trim() || null,
+      }),
+    });
+    await reloadWorkspaceFiles();
+    setOutput("Evaluation bundle exported", result.path, "success");
+  } catch (error) {
+    elements["analytics-error"].textContent = error.message || String(error);
+  }
+}
+
 function tableSpec() {
   const metric = elements["table-metric"].value;
   if (!metric) throw new Error("No indexed metric is selected");
@@ -1802,13 +2188,14 @@ function tableSpec() {
     artifact_root: elements["analytics-root"].value.trim() || "runs",
     filters: {
       ...(base.filters || {}),
+      ...commonMetricFilters(),
       metrics: keep(base.filters?.metrics, metric),
       stages: keep(base.filters?.stages, stage),
       kinds: base.filters?.kinds?.length ? base.filters.kinds : ["final"],
     },
     row: elements["table-row"].value,
     column: elements["table-column"].value,
-    aggregate: base.aggregate || "mean_std",
+    aggregate: elements["table-aggregate"].value,
     precision: Number(elements["table-precision"].value),
     direction: elements["table-direction"].value,
     bold_best: base.bold_best ?? true,
@@ -1821,6 +2208,86 @@ function tableSpec() {
   };
 }
 
+function tableCellText(cell, spec) {
+  if (!cell) return spec.missing || "--";
+  const precision = spec.precision || 4;
+  const number = (value) => Number(value).toPrecision(precision);
+  if (spec.aggregate === "mean_std") {
+    return `${number(cell.mean)} ± ${number(cell.std)}`;
+  }
+  const value = {
+    mean: cell.mean,
+    min: cell.minimum,
+    max: cell.maximum,
+  }[spec.aggregate];
+  return number(value);
+}
+
+function renderVisualTable(data) {
+  const host = elements["table-visual-preview"];
+  host.replaceChildren();
+  if (!data.rows.length || !data.columns.length) {
+    host.textContent = "No matching final metric events.";
+    return;
+  }
+  const spec = data.spec;
+  const cells = new Map(
+    data.cells.map((cell) => [`${cell.row_name}\u0000${cell.column_name}`, cell]),
+  );
+  const table = document.createElement("table");
+  table.className = "publication-table";
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  const corner = document.createElement("th");
+  corner.textContent = spec.row.replaceAll("_", " ");
+  headRow.append(corner);
+  for (const column of data.columns) {
+    const cell = document.createElement("th");
+    cell.textContent = column;
+    headRow.append(cell);
+  }
+  head.append(headRow);
+  const body = document.createElement("tbody");
+  for (const rowName of data.rows) {
+    const row = document.createElement("tr");
+    const label = document.createElement("th");
+    label.textContent = rowName;
+    row.append(label);
+    const rowCells = data.columns.map((column) =>
+      cells.get(`${rowName}\u0000${column}`),
+    );
+    const values = rowCells
+      .filter(Boolean)
+      .map((cell) => Number(cell.mean))
+      .sort((left, right) =>
+        spec.direction === "maximize" ? right - left : left - right,
+      );
+    const distinct = [...new Set(values)];
+    rowCells.forEach((cell, index) => {
+      const node = document.createElement("td");
+      node.textContent = tableCellText(cell, spec);
+      if (cell && spec.direction !== "none") {
+        const rank = distinct.indexOf(Number(cell.mean)) + 1;
+        if (rank === 1 && spec.bold_best) node.classList.add("best-result");
+        if (rank === 2 && spec.underline_second) node.classList.add("second-result");
+      }
+      if (cell) node.title = `n=${cell.n}; min=${cell.minimum}; max=${cell.maximum}`;
+      row.append(node);
+    });
+    body.append(row);
+  }
+  table.append(head, body);
+  host.append(table);
+  if (data.truncated) {
+    const note = document.createElement("div");
+    note.className = "chart-limit-note";
+    note.textContent =
+      `Showing ${data.rows.length}/${data.row_total} rows and ` +
+      `${data.columns.length}/${data.column_total} columns.`;
+    host.prepend(note);
+  }
+}
+
 async function previewTable() {
   elements["analytics-error"].textContent = "";
   try {
@@ -1828,13 +2295,24 @@ async function previewTable() {
       method: "POST",
       body: JSON.stringify(tableSpec()),
     });
-    const limitNote = result.table.truncated
-      ? `% Showing ${result.table.rows.length}/${result.table.row_total} rows and ` +
-        `${result.table.columns.length}/${result.table.column_total} columns.\n`
-      : "";
-    elements["table-preview"].textContent = limitNote + result.latex;
+    state.currentTableLatex = result.latex;
+    elements["table-preview"].textContent = result.latex;
+    renderVisualTable(result.table);
   } catch (error) {
     elements["analytics-error"].textContent = error.message || String(error);
+  }
+}
+
+async function copyTableLatex() {
+  if (!state.currentTableLatex) {
+    elements["analytics-error"].textContent = "Build the table before copying LaTeX.";
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(state.currentTableLatex);
+    setOutput("LaTeX copied", `${state.currentTableLatex.length} characters`, "success");
+  } catch (error) {
+    elements["analytics-error"].textContent = `Could not copy LaTeX: ${error.message || error}`;
   }
 }
 
@@ -2002,11 +2480,33 @@ function installEvents() {
   });
   elements["refresh-overview"].addEventListener("click", refreshRunOverview);
   elements["analytics-overview-tab"].addEventListener("click", () => showAnalyticsPanel("overview"));
+  elements["analytics-evaluation-tab"].addEventListener("click", () =>
+    showAnalyticsPanel("evaluation"),
+  );
   elements["analytics-builders-tab"].addEventListener("click", () => showAnalyticsPanel("builders"));
+  elements["clear-analytics-filters"].addEventListener("click", clearAnalyticsFilters);
+  for (const id of [
+    "filter-studies",
+    "filter-trials",
+    "filter-models",
+    "filter-datasets",
+    "filter-splits",
+    "filter-states",
+  ]) {
+    elements[id].addEventListener("change", updateActiveFilterCount);
+  }
+  elements["run-evaluation"].addEventListener("click", runEvaluation);
+  elements["copy-evaluation-latex"].addEventListener("click", copyEvaluationLatex);
+  elements["export-evaluation"].addEventListener("click", exportEvaluation);
   elements["load-report-spec"].addEventListener("click", loadReportSpec);
+  elements["chart-kind"].addEventListener("change", () => {
+    elements["chart-type"].value =
+      elements["chart-kind"].value === "final" ? "bar" : "line";
+  });
   elements["preview-chart"].addEventListener("click", previewChart);
   elements["export-chart"].addEventListener("click", () => exportReport("chart"));
   elements["preview-table"].addEventListener("click", previewTable);
+  elements["copy-table-latex"].addEventListener("click", copyTableLatex);
   elements["export-table"].addEventListener("click", () => exportReport("table"));
   elements["close-project-dialog"].addEventListener("click", () => elements["project-dialog"].close());
   elements["project-dialog"].addEventListener("click", (event) => {

@@ -61,8 +61,15 @@ the UI deliberately rejects `0.0.0.0` and other remote bindings.
 - an arbitrary workspace artifact-root catalog with run states, final-metric summaries, and
   resource summaries;
 - an incremental run/metric catalog for large artifact roots with explicit rebuild;
-- configurable learning curves with seed aggregation, uncertainty, log scale, and downsampling;
-- configurable LaTeX tables with row/column grouping, ranking, precision, captions, and labels;
+- shared multi-value study/trial/model/dataset/split/state filters across analytical views;
+- validation-selected evaluation that chooses a best step per run, reads a target metric at the
+  same step, exposes excluded seeds, and aggregates by up to three dimensions;
+- configurable line and bar figures with seed aggregation, uncertainty, log scale, and
+  downsampling;
+- visual publication-table previews plus generated LaTeX with row/column grouping, ranking,
+  precision, captions, labels, and one-click copying;
+- reproducible validation-selected evaluation bundles containing LaTeX, CSV, JSON, and separate
+  eligible/excluded run provenance;
 - loading of saved chart/table YAML specs and reproducible report-bundle export to a bounded
   workspace destination;
 - runtime diagnostics plus safe project scaffold initialization without overwriting files.

@@ -74,7 +74,8 @@ stages:
     assert "ResearchAssistant" in index.text
     assert "Launch and monitor experiments" in index.text
     assert "Inspect experiment" in index.text
-    assert "Runs, resources and reports" in index.text
+    assert "Evaluate, compare and publish" in index.text
+    assert "Selection protocol" in index.text
     assert "frame-ancestors 'none'" in index.headers["content-security-policy"]
     asset_path = re.search(r'src="(/assets/[^"]+\.js)"', index.text).group(1)
     assert client.get(asset_path).status_code == 200
@@ -299,6 +300,39 @@ def test_ui_analytics_catalog_chart_table_and_export(tmp_path: Path) -> None:
     chart = client.post("/api/analytics/chart", json=chart_spec)
     assert chart.status_code == 200, chart.text
     assert chart.json()["chart"]["series"][0]["points"][0]["n"] == 2
+    evaluation = client.post(
+        "/api/analytics/evaluate",
+        json={
+            "artifact_root": "runs",
+            "selection_metric": "test/error",
+            "target_metric": "test/error",
+            "selection_kind": "final",
+            "target_kind": "final",
+            "group_by": ["trial_id"],
+        },
+    )
+    assert evaluation.status_code == 200, evaluation.text
+    assert evaluation.json()["evaluation"]["eligible_runs"] == 2
+    assert evaluation.json()["evaluation"]["groups"][0]["mean"] == pytest.approx(0.1)
+    assert "\\begin{tabular}" in evaluation.json()["latex"]
+    evaluation_export = client.post(
+        "/api/analytics/evaluation/export",
+        json={
+            "spec": {
+                "name": "selected",
+                "artifact_root": "runs",
+                "selection_metric": "test/error",
+                "target_metric": "test/error",
+                "selection_kind": "final",
+                "target_kind": "final",
+                "group_by": ["trial_id"],
+            },
+            "output_path": "custom/selected",
+        },
+    )
+    assert evaluation_export.status_code == 200, evaluation_export.text
+    assert (tmp_path / "custom" / "selected" / "table.tex").is_file()
+    assert (tmp_path / "custom" / "selected" / "provenance.json").is_file()
 
     table_spec = {
         "name": "benchmark",

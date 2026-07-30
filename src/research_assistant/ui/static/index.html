@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
     <title>ResearchAssistant</title>
-    <script type="module" crossorigin src="/assets/index-BFXLLxOt.js"></script>
+    <script type="module" crossorigin src="/assets/index-DRgcFgyk.js"></script>
     <link rel="modulepreload" crossorigin href="/assets/monaco-core-m-r-higXCsf5.js">
     <link rel="modulepreload" crossorigin href="/assets/monaco-base-common-root-m-r-CHLg9-Xf.js">
     <link rel="modulepreload" crossorigin href="/assets/monaco-base-common-observableInternal-g-EcJz9z.js">
@@ -114,8 +114,8 @@
     <link rel="modulepreload" crossorigin href="/assets/monaco-contrib-readOnlyMessage-pc9MJ3cC.js">
     <link rel="modulepreload" crossorigin href="/assets/monaco-contrib-diffEditorBreadcrumbs-C_r5OFR2.js">
     <link rel="modulepreload" crossorigin href="/assets/monaco-contrib-floatingMenu-B4aPjsTf.js">
-    <link rel="modulepreload" crossorigin href="/assets/index-BFXLLxOt.js">
-    <link rel="modulepreload" crossorigin href="/assets/monaco-languages-BuoPSHHu.js">
+    <link rel="modulepreload" crossorigin href="/assets/index-DRgcFgyk.js">
+    <link rel="modulepreload" crossorigin href="/assets/monaco-languages-Du9F-ZJR.js">
     <link rel="stylesheet" crossorigin href="/assets/monaco-base-browser-ui-DfKtmWBc.css">
     <link rel="stylesheet" crossorigin href="/assets/monaco-platform-m-r-YcvCoC-0.css">
     <link rel="stylesheet" crossorigin href="/assets/monaco-platform-a-f-DrGymszL.css">
@@ -156,7 +156,7 @@
     <link rel="stylesheet" crossorigin href="/assets/monaco-contrib-rename-DnvFQ7hy.css">
     <link rel="stylesheet" crossorigin href="/assets/monaco-contrib-unicodeHighlighter-Dp2U1WKk.css">
     <link rel="stylesheet" crossorigin href="/assets/monaco-contrib-floatingMenu-LnswRIKp.css">
-    <link rel="stylesheet" crossorigin href="/assets/index-CHqAqUj-.css">
+    <link rel="stylesheet" crossorigin href="/assets/index-CMZp8WaY.css">
   </head>
   <body>
     <div id="app-shell">
@@ -519,8 +519,8 @@
     <dialog id="analytics-dialog" class="analytics-dialog">
       <div class="dialog-heading">
         <div>
-          <span class="eyebrow">INDEXED METRICS</span>
-          <h2>Runs, resources and reports</h2>
+          <span class="eyebrow">RESULTS WORKBENCH</span>
+          <h2>Evaluate, compare and publish</h2>
         </div>
         <button id="close-analytics-dialog" class="icon-button" type="button" aria-label="Close">×</button>
       </div>
@@ -530,93 +530,182 @@
           <span>Artifact root</span>
           <input id="analytics-root" value="runs" />
         </label>
-        <button id="refresh-analytics" class="button ghost" type="button">Refresh</button>
+        <button id="refresh-analytics" class="button primary" type="button">Refresh data</button>
         <button id="rebuild-analytics" class="button ghost" type="button">Rebuild index</button>
         <span id="analytics-summary" class="analytics-summary">Not indexed</span>
       </div>
 
-      <div class="analytics-tabs" role="tablist" aria-label="Report sections">
-        <button id="analytics-overview-tab" class="analytics-tab active" type="button">Runs & resources</button>
-        <button id="analytics-builders-tab" class="analytics-tab" type="button">Charts & tables</button>
+      <div class="analytics-tabs" role="tablist" aria-label="Result sections">
+        <button id="analytics-overview-tab" class="analytics-tab active" type="button">Run explorer</button>
+        <button id="analytics-evaluation-tab" class="analytics-tab" type="button">Evaluation</button>
+        <button id="analytics-builders-tab" class="analytics-tab" type="button">Figures & tables</button>
       </div>
+
+      <details class="analytics-filter-drawer">
+        <summary>
+          <span>Dataset filters</span>
+          <span id="active-filter-count" class="filter-count">all indexed data</span>
+        </summary>
+        <div class="analytics-filter-grid">
+          <label class="field"><span>Studies</span><select id="filter-studies" multiple></select></label>
+          <label class="field"><span>Trials</span><select id="filter-trials" multiple></select></label>
+          <label class="field"><span>Models</span><select id="filter-models" multiple></select></label>
+          <label class="field"><span>Datasets</span><select id="filter-datasets" multiple></select></label>
+          <label class="field"><span>Splits</span><select id="filter-splits" multiple></select></label>
+          <label class="field"><span>Run states</span><select id="filter-states" multiple></select></label>
+          <div class="filter-help">
+            <span>Filters apply to evaluation, charts and tables. Leave a facet empty to include all values.</span>
+            <button id="clear-analytics-filters" class="button ghost" type="button">Clear filters</button>
+          </div>
+        </div>
+      </details>
 
       <section id="analytics-overview-panel" class="analytics-panel analytics-overview">
         <div class="overview-controls">
           <label class="field"><span>Stage</span><select id="overview-stage"><option value="">all</option></select></label>
-          <label class="field"><span>Metric</span><select id="overview-metric"><option value="">all</option></select></label>
-          <label class="field"><span>Resource trial IDs</span><input id="overview-trials" placeholder="trial-a, trial-b" /></label>
+          <label class="field"><span>Final metric</span><select id="overview-metric"><option value="">all</option></select></label>
+          <label class="field"><span>Resource trial IDs</span><input id="overview-trials" placeholder="optional, comma-separated" /></label>
           <label class="field"><span>Run limit</span><input id="overview-limit" type="number" min="1" max="2000" value="500" /></label>
-          <button id="refresh-overview" class="button primary" type="button">Load overview</button>
+          <button id="refresh-overview" class="button primary" type="button">Load runs</button>
         </div>
         <div id="run-catalog-summary" class="overview-summary">No run catalog loaded.</div>
         <div class="overview-grid">
-          <section class="overview-card">
+          <section class="overview-card overview-card-runs">
             <div class="section-heading"><h3>Runs</h3><span id="overview-runs-count">0</span></div>
             <div id="overview-runs" class="data-table-wrap"></div>
           </section>
           <section class="overview-card">
-            <div class="section-heading"><h3>Metric summary</h3><span>final values</span></div>
+            <div class="section-heading"><h3>Final metrics</h3><span>mean ± std</span></div>
             <div id="overview-summary" class="data-table-wrap"></div>
           </section>
           <section class="overview-card">
-            <div class="section-heading"><h3>Resources</h3><span>timing and GPU</span></div>
+            <div class="section-heading"><h3>Compute</h3><span>per trial</span></div>
             <div id="overview-resources" class="data-table-wrap"></div>
           </section>
         </div>
       </section>
 
+      <section id="analytics-evaluation-panel" class="analytics-panel evaluation-panel" hidden>
+        <div class="evaluation-layout">
+          <aside class="evaluation-protocol">
+            <div class="section-heading"><h3>Selection protocol</h3><span>per run</span></div>
+            <p>Choose the best validation step, read the target metric at that same step, then aggregate eligible seeds.</p>
+            <div class="evaluation-fields">
+              <label class="field"><span>Selection metric</span><select id="evaluation-selection-metric"></select></label>
+              <label class="field"><span>Target metric</span><select id="evaluation-target-metric"></select></label>
+              <label class="field"><span>Stage</span><select id="evaluation-stage"></select></label>
+              <div class="field-grid">
+                <label class="field"><span>Selection split</span><select id="evaluation-selection-split"></select></label>
+                <label class="field"><span>Target split</span><select id="evaluation-target-split"></select></label>
+              </div>
+              <div class="field-grid">
+                <label class="field"><span>Direction</span><select id="evaluation-direction"><option value="minimize">minimize</option><option value="maximize">maximize</option></select></label>
+                <label class="field"><span>Target step</span><select id="evaluation-alignment"><option value="same_step">same selected step</option><option value="latest">latest available</option></select></label>
+              </div>
+              <div class="field-grid">
+                <label class="field"><span>Group first</span><select id="evaluation-group-primary"><option>dataset</option><option>model</option><option>trial_id</option><option>study_id</option><option>stage</option><option>split</option></select></label>
+                <label class="field"><span>Then by</span><select id="evaluation-group-secondary"><option value="">none</option><option selected>model</option><option>dataset</option><option>trial_id</option><option>study_id</option><option>stage</option><option>split</option></select></label>
+              </div>
+              <label class="field"><span>Maximum selected runs</span><input id="evaluation-max-runs" type="number" min="1" max="10000" value="2000" /></label>
+              <div class="field-grid">
+                <label class="field"><span>Table precision</span><input id="evaluation-precision" type="number" min="1" max="10" value="4" /></label>
+                <label class="field"><span>Target ranking</span><select id="evaluation-table-direction"><option>minimize</option><option>maximize</option><option>none</option></select></label>
+              </div>
+              <label class="field"><span>Report name</span><input id="evaluation-name" value="validation-selected-results" /></label>
+              <label class="field"><span>LaTeX label</span><input id="evaluation-label" value="tab:validation-selected" /></label>
+              <label class="field"><span>Caption</span><input id="evaluation-caption" placeholder="Validation-selected test results" /></label>
+              <label class="field"><span>Export directory</span><input id="evaluation-output" placeholder="reports/validation-selected-results" /></label>
+              <div class="evaluation-actions">
+                <button id="run-evaluation" class="button primary" type="button">Evaluate runs</button>
+                <button id="copy-evaluation-latex" class="button ghost" type="button">Copy LaTeX</button>
+                <button id="export-evaluation" class="button ghost" type="button">Export bundle</button>
+              </div>
+            </div>
+          </aside>
+          <div class="evaluation-results">
+            <div class="evaluation-kpis">
+              <article><span>Selected</span><strong id="evaluation-selected-count">—</strong></article>
+              <article><span>Eligible</span><strong id="evaluation-eligible-count">—</strong></article>
+              <article><span>Excluded</span><strong id="evaluation-excluded-count">—</strong></article>
+              <article><span>Groups</span><strong id="evaluation-group-count">—</strong></article>
+            </div>
+            <section class="evaluation-card">
+              <div class="section-heading"><h3>Aggregated results</h3><span id="evaluation-provenance">not evaluated</span></div>
+              <div id="evaluation-groups" class="data-table-wrap"></div>
+            </section>
+            <section class="evaluation-card evaluation-runs-card">
+              <div class="section-heading"><h3>Run-level selection</h3><span>audit trail</span></div>
+              <div id="evaluation-runs" class="data-table-wrap"></div>
+            </section>
+            <details class="latex-source evaluation-latex-source">
+              <summary>Validation-selected LaTeX table</summary>
+              <pre id="evaluation-latex" class="table-preview"></pre>
+            </details>
+          </div>
+        </div>
+      </section>
+
       <section id="analytics-builders-panel" class="analytics-panel" hidden>
         <div class="report-spec-toolbar">
-          <label class="field"><span>Saved spec</span><select id="report-spec-path"></select></label>
+          <label class="field"><span>Saved YAML spec</span><select id="report-spec-path"></select></label>
           <label class="field"><span>Kind</span><select id="report-spec-kind"><option value="chart">chart</option><option value="table">table</option></select></label>
           <button id="load-report-spec" class="button ghost" type="button">Load spec</button>
+          <span>All previews use the active dataset filters above.</span>
         </div>
         <div class="analytics-grid">
-        <section class="analytics-builder">
-          <div class="section-heading"><h3>Chart</h3><span>server-side aggregation</span></div>
-          <div class="field-grid analytics-fields">
-            <label class="field"><span>Name</span><input id="chart-name" value="learning-curves" /></label>
-            <label class="field"><span>Metric</span><select id="chart-metric"></select></label>
-            <label class="field"><span>Stage</span><select id="chart-stage"></select></label>
-            <label class="field"><span>Kind</span><select id="chart-kind"><option value="progress">progress</option><option value="final">final</option></select></label>
-            <label class="field"><span>Group by</span><select id="chart-group"><option>model</option><option>study_id</option><option>trial_id</option><option>run_id</option><option>dataset</option><option>split</option><option>seed</option><option>stage</option><option>metric</option></select></label>
-            <label class="field"><span>Uncertainty</span><select id="chart-uncertainty"><option>std</option><option>sem</option><option>range</option><option>none</option></select></label>
-            <label class="field"><span>Y scale</span><select id="chart-scale"><option>linear</option><option>log</option></select></label>
-            <label class="field"><span>Max points/series</span><input id="chart-points" type="number" min="20" max="10000" value="1000" /></label>
-            <label class="field"><span>Max series</span><input id="chart-series" type="number" min="1" max="500" value="50" /></label>
-            <label class="field wide"><span>Title</span><input id="chart-title" placeholder="Optional" /></label>
-            <label class="field"><span>Export formats</span><input id="chart-formats" value="svg, pdf" placeholder="svg, pdf, png" /></label>
-            <label class="field wide"><span>Export directory</span><input id="chart-output" placeholder="reports/learning-curves" /></label>
-          </div>
-          <div class="analytics-actions">
-            <button id="preview-chart" class="button primary" type="button">Preview chart</button>
-            <button id="export-chart" class="button ghost" type="button">Export bundle</button>
-          </div>
-          <div id="chart-preview" class="chart-preview"><span>Select a metric and preview.</span></div>
-        </section>
+          <section class="analytics-builder">
+            <div class="section-heading"><h3>Figure</h3><span>bounded server-side aggregation</span></div>
+            <div class="field-grid analytics-fields">
+              <label class="field"><span>Name</span><input id="chart-name" value="learning-curves" /></label>
+              <label class="field"><span>Metric</span><select id="chart-metric"></select></label>
+              <label class="field"><span>Stage</span><select id="chart-stage"></select></label>
+              <label class="field"><span>Event kind</span><select id="chart-kind"><option value="progress">progress</option><option value="final">final</option></select></label>
+              <label class="field"><span>Figure type</span><select id="chart-type"><option value="line">line / learning curve</option><option value="bar">bar / comparison</option></select></label>
+              <label class="field"><span>Series</span><select id="chart-group"><option>model</option><option>study_id</option><option>trial_id</option><option>run_id</option><option>dataset</option><option>split</option><option>seed</option><option>stage</option><option>metric</option></select></label>
+              <label class="field"><span>Aggregation</span><select id="chart-aggregate"><option>mean</option><option>min</option><option>max</option></select></label>
+              <label class="field"><span>Uncertainty</span><select id="chart-uncertainty"><option>std</option><option>sem</option><option>range</option><option>none</option></select></label>
+              <label class="field"><span>Y scale</span><select id="chart-scale"><option>linear</option><option>log</option></select></label>
+              <label class="field"><span>Max points/series</span><input id="chart-points" type="number" min="20" max="10000" value="1000" /></label>
+              <label class="field"><span>Max series</span><input id="chart-series" type="number" min="1" max="500" value="50" /></label>
+              <label class="field wide"><span>Title</span><input id="chart-title" placeholder="Optional" /></label>
+              <label class="field"><span>Export formats</span><input id="chart-formats" value="svg, pdf" placeholder="svg, pdf, png" /></label>
+              <label class="field wide"><span>Export directory</span><input id="chart-output" placeholder="reports/learning-curves" /></label>
+            </div>
+            <div class="analytics-actions">
+              <button id="preview-chart" class="button primary" type="button">Render preview</button>
+              <button id="export-chart" class="button ghost" type="button">Export reproducible bundle</button>
+            </div>
+            <div id="chart-preview" class="chart-preview"><span>Select a metric and render.</span></div>
+          </section>
 
-        <section class="analytics-builder">
-          <div class="section-heading"><h3>LaTeX table</h3><span>mean/std across runs</span></div>
-          <div class="field-grid analytics-fields">
-            <label class="field"><span>Name</span><input id="table-name" value="benchmark-table" /></label>
-            <label class="field"><span>Metric</span><select id="table-metric"></select></label>
-            <label class="field"><span>Stage</span><select id="table-stage"></select></label>
-            <label class="field"><span>Row</span><select id="table-row"><option>dataset</option><option>study_id</option><option>stage</option><option>metric</option><option>model</option><option>trial_id</option><option>split</option></select></label>
-            <label class="field"><span>Column</span><select id="table-column"><option>model</option><option>trial_id</option><option>study_id</option><option>dataset</option><option>split</option><option>stage</option><option>metric</option></select></label>
-            <label class="field"><span>Direction</span><select id="table-direction"><option>minimize</option><option>maximize</option><option>none</option></select></label>
-            <label class="field"><span>Precision</span><input id="table-precision" type="number" min="1" max="10" value="4" /></label>
-            <label class="field"><span>Max rows</span><input id="table-rows" type="number" min="1" max="1000" value="100" /></label>
-            <label class="field"><span>Max columns</span><input id="table-columns" type="number" min="1" max="500" value="50" /></label>
-            <label class="field"><span>Label</span><input id="table-label" value="tab:benchmark" /></label>
-            <label class="field wide"><span>Caption</span><input id="table-caption" placeholder="Benchmark results" /></label>
-            <label class="field wide"><span>Export directory</span><input id="table-output" placeholder="reports/benchmark-table" /></label>
-          </div>
-          <div class="analytics-actions">
-            <button id="preview-table" class="button primary" type="button">Preview LaTeX</button>
-            <button id="export-table" class="button ghost" type="button">Export bundle</button>
-          </div>
-          <pre id="table-preview" class="table-preview">Select a final metric and preview.</pre>
-        </section>
+          <section class="analytics-builder">
+            <div class="section-heading"><h3>Publication table</h3><span>visual + LaTeX</span></div>
+            <div class="field-grid analytics-fields">
+              <label class="field"><span>Name</span><input id="table-name" value="benchmark-table" /></label>
+              <label class="field"><span>Metric</span><select id="table-metric"></select></label>
+              <label class="field"><span>Stage</span><select id="table-stage"></select></label>
+              <label class="field"><span>Rows</span><select id="table-row"><option>dataset</option><option>study_id</option><option>stage</option><option>metric</option><option>model</option><option>trial_id</option><option>split</option></select></label>
+              <label class="field"><span>Columns</span><select id="table-column"><option>model</option><option>trial_id</option><option>study_id</option><option>dataset</option><option>split</option><option>stage</option><option>metric</option></select></label>
+              <label class="field"><span>Cell value</span><select id="table-aggregate"><option value="mean_std">mean ± std</option><option value="mean">mean</option><option value="min">minimum</option><option value="max">maximum</option></select></label>
+              <label class="field"><span>Ranking</span><select id="table-direction"><option>minimize</option><option>maximize</option><option>none</option></select></label>
+              <label class="field"><span>Precision</span><input id="table-precision" type="number" min="1" max="10" value="4" /></label>
+              <label class="field"><span>Max rows</span><input id="table-rows" type="number" min="1" max="1000" value="100" /></label>
+              <label class="field"><span>Max columns</span><input id="table-columns" type="number" min="1" max="500" value="50" /></label>
+              <label class="field"><span>Label</span><input id="table-label" value="tab:benchmark" /></label>
+              <label class="field wide"><span>Caption</span><input id="table-caption" placeholder="Benchmark results" /></label>
+              <label class="field wide"><span>Export directory</span><input id="table-output" placeholder="reports/benchmark-table" /></label>
+            </div>
+            <div class="analytics-actions">
+              <button id="preview-table" class="button primary" type="button">Build table</button>
+              <button id="copy-table-latex" class="button ghost" type="button">Copy LaTeX</button>
+              <button id="export-table" class="button ghost" type="button">Export reproducible bundle</button>
+            </div>
+            <div id="table-visual-preview" class="table-visual-preview"><span>Select a final metric and build.</span></div>
+            <details class="latex-source">
+              <summary>LaTeX source</summary>
+              <pre id="table-preview" class="table-preview"></pre>
+            </details>
+          </section>
         </div>
       </section>
       <div id="analytics-error" class="form-error" role="alert"></div>
