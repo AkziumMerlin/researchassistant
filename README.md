@@ -93,8 +93,9 @@ ra ui . --plugin my_project.plugin
 ```
 
 The workbench provides a project explorer, Monaco file editor with tabs and `Ctrl+S`, the live
-component registry, a visual schema-driven config creator, unsaved-config validation, detached
-experiment launch, persistent run monitoring, and indexed chart/LaTeX-table builders. Chart
+component registry, a visual schema-driven config creator, composed-config and run-plan inspection,
+detached experiment launch with config/launcher overrides, persistent run monitoring, aggregate
+metric/resource summaries, and indexed chart/LaTeX-table builders with saved-spec loading. Chart
 queries are aggregated on the server rather than transferring complete metric histories to the
 browser.
 

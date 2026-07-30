@@ -34,6 +34,7 @@ from research_assistant.reporting import (
     write_chart_bundle,
     write_table_bundle,
 )
+from research_assistant.scaffold import initialize_project
 
 app = typer.Typer(
     name="ra",
@@ -453,85 +454,8 @@ def report_table(
 @app.command()
 def init(path: Annotated[Path, typer.Argument()] = Path(".")) -> None:
     """Create a minimal plugin project without overwriting existing files."""
-    files = {
-        path / "configs" / "smoke.yaml": _SMOKE_CONFIG,
-        path / "ra_project" / "__init__.py": "",
-        path / "ra_project" / "plugin.py": _PLUGIN_TEMPLATE,
-    }
-    conflicts = [str(file) for file in files if file.exists()]
-    if conflicts:
-        _abort(ResearchAssistantError(f"refusing to overwrite: {', '.join(conflicts)}"))
-    for file, content in files.items():
-        file.parent.mkdir(parents=True, exist_ok=True)
-        file.write_text(content, encoding="utf-8")
+    try:
+        initialize_project(path)
+    except ResearchAssistantError as exc:
+        _abort(exc)
     typer.echo(f"initialized ResearchAssistant project in {path.resolve()}")
-
-
-_SMOKE_CONFIG = """version: 1
-experiment:
-  name: smoke
-plugins: [ra_project.plugin]
-seed: 0
-components:
-  value:
-    type: example/constant
-    params:
-      value: 1.0
-matrix:
-  seed: [0, 1, 2]
-stages:
-  - name: fit
-    type: example/measure
-  - name: test
-    type: core/noop
-    needs: [fit]
-    params:
-      metrics:
-        test/example: 1.0
-"""
-
-
-_PLUGIN_TEMPLATE = """from typing import Any
-
-from pydantic import BaseModel, ConfigDict
-
-from research_assistant.execution import StageContext, StageResult
-from research_assistant.registry import Registry
-
-
-class ConstantConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    value: float
-
-
-def build_constant(config: ConstantConfig, _context: Any) -> float:
-    return config.value
-
-
-class MeasureConfig(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-
-def measure(_config: MeasureConfig, context: StageContext) -> StageResult:
-    value = context.component("value")
-    return StageResult(metrics={"train/example": value + float(context.seed or 0)})
-
-
-def register(registry: Registry) -> None:
-    registry.add(
-        "value",
-        "example/constant",
-        factory=build_constant,
-        schema=ConstantConfig,
-        description="Example project component.",
-        provider=__name__,
-    )
-    registry.add(
-        "stage",
-        "example/measure",
-        factory=measure,
-        schema=MeasureConfig,
-        description="Example stage using a configured component.",
-        provider=__name__,
-    )
-"""

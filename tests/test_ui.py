@@ -1,3 +1,4 @@
+import json
 import re
 import time
 from pathlib import Path
@@ -70,6 +71,8 @@ stages:
     assert index.status_code == 200
     assert "ResearchAssistant" in index.text
     assert "Launch and monitor experiments" in index.text
+    assert "Inspect experiment" in index.text
+    assert "Runs, resources and reports" in index.text
     assert "frame-ancestors 'none'" in index.headers["content-security-policy"]
     asset_path = re.search(r'src="(/assets/[^"]+\.js)"', index.text).group(1)
     assert client.get(asset_path).status_code == 200
@@ -78,6 +81,8 @@ stages:
     assert bootstrap.status_code == 200
     payload = bootstrap.json()
     assert payload["workspace"]["path"] == str(tmp_path)
+    assert payload["diagnostics"]["research_assistant"]
+    assert payload["diagnostics"]["python"]
     assert any(spec["name"] == "core/noop" for spec in payload["components"])
 
     opened = client.get("/api/files", params={"path": "configs/smoke.yaml"}).json()
@@ -100,6 +105,22 @@ stages:
     )
     assert validated.status_code == 200, validated.text
     assert validated.json()["plan"]["runs"] == 1
+    inspected = client.post(
+        "/api/config/inspect",
+        json={
+            "path": "configs/smoke.yaml",
+            "content": config_content,
+            "overrides": ["experiment.name=inspected", "matrix.seed=[0, 1]"],
+            "include_manifests": True,
+        },
+    )
+    assert inspected.status_code == 200, inspected.text
+    inspected_payload = inspected.json()
+    assert inspected_payload["experiment"] == "inspected"
+    assert inspected_payload["plan"]["runs"] == 2
+    assert len(inspected_payload["plan"]["run_details"]) == 2
+    assert len(inspected_payload["manifests"]) == 2
+    assert "name: inspected" in inspected_payload["rendered"]
 
     generated = client.post(
         "/api/config/create",
@@ -164,6 +185,34 @@ def test_ui_cli_refuses_remote_binding(tmp_path: Path) -> None:
     assert "only binds to localhost" in result.output
 
 
+def test_ui_project_init_is_safe_and_reports_scaffold(tmp_path: Path) -> None:
+    client = TestClient(create_app(tmp_path))
+
+    initialized = client.post("/api/project/init", json={})
+
+    assert initialized.status_code == 201, initialized.text
+    assert initialized.json()["restart_required"] is True
+    assert initialized.json()["plugin"] == "ra_project.plugin"
+    assert (tmp_path / "configs" / "smoke.yaml").is_file()
+    assert (tmp_path / "ra_project" / "plugin.py").is_file()
+    repeated = client.post("/api/project/init", json={})
+    assert repeated.status_code == 400
+    assert "refusing to overwrite" in repeated.json()["detail"]
+
+
+def test_ui_project_init_rejects_symlinked_scaffold_directory(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    (tmp_path / "configs").symlink_to(outside, target_is_directory=True)
+    client = TestClient(create_app(tmp_path))
+
+    response = client.post("/api/project/init", json={})
+
+    assert response.status_code == 400
+    assert "unsafe directory" in response.json()["detail"]
+    assert not (outside / "smoke.yaml").exists()
+
+
 def test_ui_ssh_mode_prints_tunnel_and_does_not_open_browser(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
@@ -208,11 +257,36 @@ def test_ui_analytics_catalog_chart_table_and_export(tmp_path: Path) -> None:
     registry = load_registry()
     for manifest in compile_plan(config, registry).runs:
         execute_run(manifest, registry, artifact_root=tmp_path / "runs")
+        resources_path = tmp_path / "runs" / manifest.study_id / manifest.run_id / "resources.json"
+        resources_path.write_text(
+            json.dumps(
+                {
+                    "total": {
+                        "wall_seconds": 3.5,
+                        "gpu_wall_seconds": 1.0,
+                        "process_memory_peak_mb": 128.0,
+                        "attempts": 1,
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
     client = TestClient(create_app(tmp_path))
 
     catalog = client.post("/api/analytics/catalog", json={"artifact_root": "runs"})
     assert catalog.status_code == 200, catalog.text
     assert catalog.json()["catalog"]["event_count"] == 2
+    run_catalog = client.post(
+        "/api/runs/catalog",
+        json={"artifact_root": "runs", "metric": "test/error", "limit": 1},
+    )
+    assert run_catalog.status_code == 200, run_catalog.text
+    run_payload = run_catalog.json()
+    assert run_payload["catalog"]["total"] == 2
+    assert run_payload["catalog"]["truncated"] is True
+    assert run_payload["catalog"]["counts"] == {"completed": 2}
+    assert run_payload["summary"][0]["mean"] == pytest.approx(0.1)
+    assert run_payload["resources"][0]["n"] == 2
 
     chart_spec = {
         "name": "curves",
@@ -231,12 +305,34 @@ def test_ui_analytics_catalog_chart_table_and_export(tmp_path: Path) -> None:
         "row": "study_id",
         "column": "trial_id",
     }
+    spec_path = tmp_path / "table-spec.yaml"
+    spec_path.write_text(
+        """name: from-spec
+artifact_root: runs
+filters:
+  metrics: [test/error]
+  kinds: [final]
+row: study_id
+column: trial_id
+""",
+        encoding="utf-8",
+    )
+    loaded_spec = client.post(
+        "/api/analytics/spec/load",
+        json={"path": "table-spec.yaml", "kind": "table"},
+    )
+    assert loaded_spec.status_code == 200, loaded_spec.text
+    assert loaded_spec.json()["spec"]["name"] == "from-spec"
     table = client.post("/api/analytics/table", json=table_spec)
     assert table.status_code == 200, table.text
     assert "\\begin{tabular}" in table.json()["latex"]
-    exported = client.post("/api/analytics/table/export", json={"spec": table_spec})
+    exported = client.post(
+        "/api/analytics/table/export",
+        json={"spec": table_spec, "output_path": "custom/report"},
+    )
     assert exported.status_code == 200, exported.text
-    assert (tmp_path / exported.json()["path"] / "table.tex").is_file()
+    assert exported.json()["path"] == "custom/report"
+    assert (tmp_path / "custom" / "report" / "table.tex").is_file()
 
 
 def test_ui_launches_saved_config_in_detached_scheduler(tmp_path: Path) -> None:
@@ -257,12 +353,27 @@ resources:
     )
     client = TestClient(create_app(tmp_path))
 
+    preview = client.post(
+        "/api/launches/preview",
+        json={
+            "config_path": "configs/smoke.yaml",
+            "artifact_root": "runs",
+            "overrides": ["matrix.seed=[3, 4, 5]"],
+            "launcher_overrides": ["params.max_parallel=2"],
+        },
+    )
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["plan"]["runs"] == 3
+    assert preview.json()["launcher"]["params"]["max_parallel"] == 2
+
     launched = client.post(
         "/api/launches",
         json={
             "config_path": "configs/smoke.yaml",
             "artifact_root": "runs",
             "resume": True,
+            "overrides": ["matrix.seed=[3, 4, 5]"],
+            "launcher_overrides": ["params.max_parallel=2"],
         },
     )
 
@@ -278,8 +389,10 @@ resources:
 
     assert detail["state"] == "completed", detail
     assert detail["scheduler_alive"] is False
-    assert detail["plan"]["runs"] == 2
-    assert detail["run_counts"] == {"completed": 2}
+    assert detail["plan"]["runs"] == 3
+    assert detail["run_counts"] == {"completed": 3}
+    assert detail["overrides"] == ["matrix.seed=[3, 4, 5]"]
+    assert detail["launcher_overrides"] == ["params.max_parallel=2"]
     assert all(run["state"] == "completed" for run in detail["runs"])
     assert f"launch {launch_id}: completed" in detail["scheduler_log"]
     assert (tmp_path / ".ra" / "ui-launches" / launch_id / "request.json").is_file()

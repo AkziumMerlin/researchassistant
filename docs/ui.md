@@ -47,15 +47,21 @@ the UI deliberately rejects `0.0.0.0` and other remote bindings.
 - a visual config creator generated from component Pydantic schemas;
 - enum, boolean, number, required-field, array, and object inputs;
 - multiple seeds, resources, stages, and stage dependencies;
-- validation of unsaved YAML, including relative `extends` inside the workspace;
-- run/trial preview before execution;
-- detached launch of saved experiment configs with an optional launcher-policy YAML;
+- inspection of unsaved YAML, including relative `extends`, CLI-style dotted overrides, the
+  rendered composed config, run identities, trial identities, assignments, and optional manifests;
+- run/trial and resolved-launcher preview before execution;
+- detached launch of saved experiment configs with config overrides, an optional launcher-policy
+  YAML, and launcher-policy overrides;
 - persistent launch history, per-run state and GPU assignment, progress, and bounded scheduler
   and worker logs;
-- an incremental run/metric catalog for large artifact roots;
+- an arbitrary workspace artifact-root catalog with run states, final-metric summaries, and
+  resource summaries;
+- an incremental run/metric catalog for large artifact roots with explicit rebuild;
 - configurable learning curves with seed aggregation, uncertainty, log scale, and downsampling;
 - configurable LaTeX tables with row/column grouping, ranking, precision, captions, and labels;
-- reproducible report-bundle export under `reports/`.
+- loading of saved chart/table YAML specs and reproducible report-bundle export to a bounded
+  workspace destination;
+- runtime diagnostics plus safe project scaffold initialization without overwriting files.
 
 The creator returns an unsaved editor buffer. Saving remains a separate explicit action.
 
@@ -63,7 +69,8 @@ The creator returns an unsaved editor buffer. Saving remains a separate explicit
 
 The browser never submits a shell command. A launch request contains a saved workspace-relative
 experiment config, an optional saved launcher policy, a workspace-relative artifact root, and the
-resume choice. The backend composes and validates inheritance, loads the component registry,
+resume choice. Both the config and launcher policy may carry the same dotted-path overrides as
+their CLI commands. The backend composes and validates inheritance, loads the component registry,
 compiles the complete plan, checks the launcher contract, and rejects paths outside the workspace
 before starting anything.
 

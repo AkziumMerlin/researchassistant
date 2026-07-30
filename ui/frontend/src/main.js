@@ -38,6 +38,8 @@ const state = {
   files: [],
   stageCounter: 0,
   analyticsCatalog: null,
+  loadedChartSpec: null,
+  loadedTableSpec: null,
   launches: [],
   selectedLaunchId: null,
   selectedRunId: null,
@@ -65,6 +67,7 @@ const elements = Object.fromEntries(
     "new-config-button",
     "experiments-button",
     "analytics-button",
+    "project-button",
     "empty-create-button",
     "validate-button",
     "save-button",
@@ -88,12 +91,23 @@ const elements = Object.fromEntries(
     "creator-artifacts",
     "creator-error",
     "add-stage-button",
+    "inspect-dialog",
+    "close-inspect-dialog",
+    "inspect-path",
+    "inspect-overrides",
+    "inspect-manifests",
+    "run-inspection",
+    "inspect-rendered",
+    "inspect-plan",
+    "inspect-error",
     "experiments-dialog",
     "close-experiments-dialog",
     "remote-session-note",
     "launch-form",
     "launch-config",
     "launch-policy",
+    "launch-overrides",
+    "launch-policy-overrides",
     "launch-artifacts",
     "launch-resume",
     "launch-plan-preview",
@@ -106,8 +120,26 @@ const elements = Object.fromEntries(
     "close-analytics-dialog",
     "analytics-root",
     "refresh-analytics",
+    "rebuild-analytics",
     "analytics-summary",
     "analytics-error",
+    "analytics-overview-tab",
+    "analytics-builders-tab",
+    "analytics-overview-panel",
+    "analytics-builders-panel",
+    "overview-stage",
+    "overview-metric",
+    "overview-trials",
+    "overview-limit",
+    "refresh-overview",
+    "run-catalog-summary",
+    "overview-runs-count",
+    "overview-runs",
+    "overview-summary",
+    "overview-resources",
+    "report-spec-path",
+    "report-spec-kind",
+    "load-report-spec",
     "chart-name",
     "chart-metric",
     "chart-stage",
@@ -118,6 +150,8 @@ const elements = Object.fromEntries(
     "chart-points",
     "chart-series",
     "chart-title",
+    "chart-formats",
+    "chart-output",
     "preview-chart",
     "export-chart",
     "chart-preview",
@@ -132,9 +166,16 @@ const elements = Object.fromEntries(
     "table-columns",
     "table-label",
     "table-caption",
+    "table-output",
     "preview-table",
     "export-table",
     "table-preview",
+    "project-dialog",
+    "close-project-dialog",
+    "project-diagnostics",
+    "initialize-project",
+    "project-result",
+    "project-error",
   ].map((id) => [id, document.getElementById(id)]),
 );
 
@@ -341,30 +382,59 @@ async function saveActive() {
   }
 }
 
-async function validateActive() {
+function overrideLines(value) {
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+}
+
+function openConfigInspector() {
   const buffer = state.activePath ? state.buffers.get(state.activePath) : null;
   if (!buffer || !isConfigPath(buffer.path)) return;
-  setOutput("Validating", `Compiling ${buffer.path}…`, "neutral");
+  elements["inspect-path"].value = buffer.path;
+  elements["inspect-error"].textContent = "";
+  elements["inspect-rendered"].textContent = "Run the inspector to render the composed configuration.";
+  elements["inspect-plan"].textContent = "No compiled plan yet.";
+  elements["inspect-dialog"].showModal();
+}
+
+async function inspectActiveConfig() {
+  const buffer = state.activePath ? state.buffers.get(state.activePath) : null;
+  if (!buffer || !isConfigPath(buffer.path)) return;
+  elements["inspect-error"].textContent = "";
+  elements["run-inspection"].disabled = true;
+  elements["run-inspection"].textContent = "Compiling…";
   try {
-    const result = await api("/api/config/validate", {
+    const result = await api("/api/config/inspect", {
       method: "POST",
-      body: JSON.stringify({ path: buffer.path, content: buffer.model.getValue() }),
+      body: JSON.stringify({
+        path: buffer.path,
+        content: buffer.model.getValue(),
+        overrides: overrideLines(elements["inspect-overrides"].value),
+        include_manifests: elements["inspect-manifests"].checked,
+      }),
     });
-    const plan = result.plan;
+    elements["inspect-rendered"].textContent = result.rendered;
+    elements["inspect-plan"].textContent = JSON.stringify(
+      {
+        experiment: result.experiment,
+        ...result.plan,
+        ...(result.manifests ? { manifests: result.manifests } : {}),
+      },
+      null,
+      2,
+    );
     setOutput(
       "Valid experiment",
-      [
-        `experiment  ${result.experiment}`,
-        `study       ${plan.study_id}`,
-        `runs        ${plan.runs}`,
-        `trials      ${plan.trials}`,
-        "",
-        ...plan.run_ids.map((id) => `run         ${id}`),
-      ].join("\n"),
+      `${result.experiment}\n${result.plan.runs} run(s) · ${result.plan.trials} trial(s)`,
       "success",
     );
   } catch (error) {
-    displayError(error, "Invalid experiment");
+    elements["inspect-error"].textContent = error.message || String(error);
+  } finally {
+    elements["run-inspection"].disabled = false;
+    elements["run-inspection"].textContent = "Compose and inspect";
   }
 }
 
@@ -817,6 +887,17 @@ function activeConfigIsDirty(path) {
   return Boolean(buffer && (buffer.isNew || bufferDirty(buffer)));
 }
 
+function launchPayload() {
+  return {
+    config_path: elements["launch-config"].value,
+    launcher_path: elements["launch-policy"].value || null,
+    artifact_root: elements["launch-artifacts"].value.trim() || null,
+    resume: elements["launch-resume"].checked,
+    overrides: overrideLines(elements["launch-overrides"].value),
+    launcher_overrides: overrideLines(elements["launch-policy-overrides"].value),
+  };
+}
+
 async function previewLaunchPlan() {
   const path = elements["launch-config"].value;
   elements["launch-error"].textContent = "";
@@ -834,15 +915,19 @@ async function previewLaunchPlan() {
   elements["launch-plan-preview"].textContent = `Compiling ${path}…`;
   elements["launch-submit"].disabled = true;
   try {
-    const file = await api(`/api/files?path=${encodeURIComponent(path)}`);
-    const result = await api("/api/config/validate", {
+    const result = await api("/api/launches/preview", {
       method: "POST",
-      body: JSON.stringify({ path, content: file.content }),
+      body: JSON.stringify(launchPayload()),
     });
     const plan = result.plan;
+    const launcher = result.launcher;
+    const assignments = (plan.run_details || [])
+      .slice(0, 3)
+      .map((run) => `${run.run_id} ← ${JSON.stringify(run.assignments)}`);
     elements["launch-plan-preview"].textContent =
-      `${result.experiment} · ${plan.runs} run(s) · ${plan.trials} trial(s)\n` +
-      `study ${plan.study_id}`;
+      `${plan.runs} run(s) · ${plan.trials} trial(s) · study ${plan.study_id}\n` +
+      `launcher ${launcher.type} · max_parallel ${launcher.params.max_parallel ?? "auto"}\n` +
+      `${assignments.join("\n")}${plan.runs > assignments.length ? "\n…" : ""}`;
     elements["launch-submit"].disabled = false;
   } catch (error) {
     elements["launch-plan-preview"].textContent = "The selected file is not launchable.";
@@ -1095,12 +1180,7 @@ async function submitLaunch(event) {
   try {
     const detail = await api("/api/launches", {
       method: "POST",
-      body: JSON.stringify({
-        config_path: configPath,
-        launcher_path: elements["launch-policy"].value || null,
-        artifact_root: elements["launch-artifacts"].value.trim() || null,
-        resume: elements["launch-resume"].checked,
-      }),
+      body: JSON.stringify(launchPayload()),
     });
     state.selectedLaunchId = detail.launch_id;
     state.selectedRunId = detail.selected_run_id || null;
@@ -1160,6 +1240,112 @@ function replaceOptions(select, values, { optional = false } = {}) {
   if ([...select.options].some((option) => option.value === previous)) select.value = previous;
 }
 
+function renderDataTable(host, rows, columns) {
+  host.replaceChildren();
+  if (!rows.length) {
+    const empty = document.createElement("div");
+    empty.className = "table-empty";
+    empty.textContent = "No matching data.";
+    host.append(empty);
+    return;
+  }
+  const table = document.createElement("table");
+  table.className = "data-table";
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const column of columns) {
+    const cell = document.createElement("th");
+    cell.textContent = column.label;
+    headRow.append(cell);
+  }
+  head.append(headRow);
+  const body = document.createElement("tbody");
+  for (const row of rows) {
+    const tableRow = document.createElement("tr");
+    for (const column of columns) {
+      const cell = document.createElement("td");
+      const raw = row[column.key];
+      cell.textContent = column.format
+        ? column.format(raw, row)
+        : raw === null || raw === undefined
+          ? "—"
+          : String(raw);
+      tableRow.append(cell);
+    }
+    body.append(tableRow);
+  }
+  table.append(head, body);
+  host.append(table);
+}
+
+function fixed(value, digits = 3) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(digits) : "—";
+}
+
+async function refreshRunOverview() {
+  elements["analytics-error"].textContent = "";
+  elements["run-catalog-summary"].textContent = "Scanning run artifacts…";
+  try {
+    const result = await api("/api/runs/catalog", {
+      method: "POST",
+      body: JSON.stringify({
+        artifact_root: elements["analytics-root"].value.trim() || "runs",
+        stage: elements["overview-stage"].value || null,
+        metric: elements["overview-metric"].value || null,
+        trial_ids: elements["overview-trials"].value
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+        limit: Number(elements["overview-limit"].value) || 500,
+      }),
+    });
+    const catalog = result.catalog;
+    const counts = Object.entries(catalog.counts)
+      .map(([name, count]) => `${name} ${count}`)
+      .join(" · ");
+    elements["run-catalog-summary"].textContent =
+      `${catalog.total} run(s) in ${catalog.root}${counts ? ` · ${counts}` : ""}` +
+      `${catalog.truncated ? ` · showing ${catalog.runs.length}` : ""}`;
+    elements["overview-runs-count"].textContent = String(catalog.runs.length);
+    renderDataTable(elements["overview-runs"], catalog.runs, [
+      { key: "state", label: "State" },
+      { key: "run_id", label: "Run" },
+      { key: "trial_id", label: "Trial" },
+      { key: "seed", label: "Seed" },
+      {
+        key: "gpu",
+        label: "Device",
+        format: (gpu) => (gpu && gpu.index !== undefined ? `GPU ${gpu.index}` : "CPU / unknown"),
+      },
+      { key: "updated_at", label: "Updated", format: formatTimestamp },
+    ]);
+    renderDataTable(elements["overview-summary"], result.summary, [
+      { key: "trial_id", label: "Trial" },
+      { key: "stage", label: "Stage" },
+      { key: "metric", label: "Metric" },
+      { key: "n", label: "n" },
+      { key: "mean", label: "Mean", format: (value) => fixed(value) },
+      { key: "std", label: "Std", format: (value) => fixed(value) },
+    ]);
+    renderDataTable(elements["overview-resources"], result.resources, [
+      { key: "trial_id", label: "Trial" },
+      { key: "n", label: "n" },
+      { key: "wall_seconds_mean", label: "Wall s", format: (value) => fixed(value, 2) },
+      { key: "gpu_hours_total", label: "GPU h", format: (value) => fixed(value, 3) },
+      {
+        key: "process_memory_peak_mb_max",
+        label: "Peak MB",
+        format: (value) => fixed(value, 1),
+      },
+      { key: "attempts_total", label: "Attempts" },
+    ]);
+  } catch (error) {
+    elements["run-catalog-summary"].textContent = "Run catalog unavailable.";
+    elements["analytics-error"].textContent = error.message || String(error);
+  }
+}
+
 async function refreshAnalytics(rebuild = false) {
   elements["analytics-error"].textContent = "";
   elements["analytics-summary"].textContent = "Indexing metric tails…";
@@ -1175,15 +1361,91 @@ async function refreshAnalytics(rebuild = false) {
   replaceOptions(elements["table-metric"], result.catalog.metrics);
   replaceOptions(elements["chart-stage"], result.catalog.stages, { optional: true });
   replaceOptions(elements["table-stage"], result.catalog.stages, { optional: true });
+  replaceOptions(elements["overview-metric"], result.catalog.metrics, { optional: true });
+  replaceOptions(elements["overview-stage"], result.catalog.stages, { optional: true });
   elements["analytics-summary"].textContent =
     `${result.catalog.run_count} runs · ${result.catalog.event_count} events · ` +
     `${result.refresh.events_indexed} new`;
 }
 
 async function openAnalytics() {
+  replaceOptions(elements["report-spec-path"], savedYamlPaths());
   elements["analytics-dialog"].showModal();
   try {
     await refreshAnalytics(false);
+    await refreshRunOverview();
+  } catch (error) {
+    elements["analytics-error"].textContent = error.message || String(error);
+  }
+}
+
+function showAnalyticsPanel(kind) {
+  const overview = kind === "overview";
+  elements["analytics-overview-panel"].hidden = !overview;
+  elements["analytics-builders-panel"].hidden = overview;
+  elements["analytics-overview-tab"].classList.toggle("active", overview);
+  elements["analytics-builders-tab"].classList.toggle("active", !overview);
+}
+
+function selectIfPresent(select, value) {
+  if (value === null || value === undefined) return;
+  if ([...select.options].some((option) => option.value === String(value))) {
+    select.value = String(value);
+  }
+}
+
+function applyChartSpec(spec) {
+  elements["analytics-root"].value = spec.artifact_root || "runs";
+  elements["chart-name"].value = spec.name || "chart";
+  selectIfPresent(elements["chart-metric"], spec.filters?.metrics?.[0]);
+  selectIfPresent(elements["chart-stage"], spec.filters?.stages?.[0] || "");
+  selectIfPresent(elements["chart-kind"], spec.filters?.kinds?.[0] || "progress");
+  selectIfPresent(elements["chart-group"], spec.group_by);
+  selectIfPresent(elements["chart-uncertainty"], spec.uncertainty);
+  selectIfPresent(elements["chart-scale"], spec.y_scale);
+  elements["chart-points"].value = String(spec.max_points ?? 1000);
+  elements["chart-series"].value = String(spec.max_series ?? 50);
+  elements["chart-title"].value = spec.title || "";
+}
+
+function applyTableSpec(spec) {
+  elements["analytics-root"].value = spec.artifact_root || "runs";
+  elements["table-name"].value = spec.name || "table";
+  selectIfPresent(elements["table-metric"], spec.filters?.metrics?.[0]);
+  selectIfPresent(elements["table-stage"], spec.filters?.stages?.[0] || "");
+  selectIfPresent(elements["table-row"], spec.row);
+  selectIfPresent(elements["table-column"], spec.column);
+  selectIfPresent(elements["table-direction"], spec.direction);
+  elements["table-precision"].value = String(spec.precision ?? 4);
+  elements["table-rows"].value = String(spec.max_rows ?? 100);
+  elements["table-columns"].value = String(spec.max_columns ?? 50);
+  elements["table-label"].value = spec.label || "";
+  elements["table-caption"].value = spec.caption || "";
+}
+
+async function loadReportSpec() {
+  elements["analytics-error"].textContent = "";
+  const path = elements["report-spec-path"].value;
+  const kind = elements["report-spec-kind"].value;
+  if (!path) {
+    elements["analytics-error"].textContent = "No saved YAML file is selected.";
+    return;
+  }
+  try {
+    const result = await api("/api/analytics/spec/load", {
+      method: "POST",
+      body: JSON.stringify({ path, kind }),
+    });
+    elements["analytics-root"].value = result.spec.artifact_root || "runs";
+    await refreshAnalytics(false);
+    if (kind === "chart") {
+      state.loadedChartSpec = structuredClone(result.spec);
+      applyChartSpec(result.spec);
+    } else {
+      state.loadedTableSpec = structuredClone(result.spec);
+      applyTableSpec(result.spec);
+    }
+    setOutput("Report spec loaded", `${result.path}\n${kind}`, "success");
   } catch (error) {
     elements["analytics-error"].textContent = error.message || String(error);
   }
@@ -1193,23 +1455,28 @@ function chartSpec() {
   const metric = elements["chart-metric"].value;
   if (!metric) throw new Error("No indexed metric is selected");
   const stage = elements["chart-stage"].value;
+  const base = structuredClone(state.loadedChartSpec || {});
+  const keep = (values, selected) =>
+    Array.isArray(values) && values[0] === selected ? values : selected ? [selected] : [];
   return {
+    ...base,
     name: elements["chart-name"].value.trim() || "chart",
     artifact_root: elements["analytics-root"].value.trim() || "runs",
     filters: {
-      metrics: [metric],
-      stages: stage ? [stage] : [],
-      kinds: [elements["chart-kind"].value],
+      ...(base.filters || {}),
+      metrics: keep(base.filters?.metrics, metric),
+      stages: keep(base.filters?.stages, stage),
+      kinds: keep(base.filters?.kinds, elements["chart-kind"].value),
     },
     group_by: elements["chart-group"].value,
-    aggregate: "mean",
+    aggregate: base.aggregate || "mean",
     uncertainty: elements["chart-uncertainty"].value,
     max_points: Number(elements["chart-points"].value),
     max_series: Number(elements["chart-series"].value),
     y_scale: elements["chart-scale"].value,
     title: elements["chart-title"].value.trim() || null,
-    x_label: "step",
-    y_label: metric,
+    x_label: base.x_label || "step",
+    y_label: base.y_label || metric,
   };
 }
 
@@ -1297,20 +1564,29 @@ function tableSpec() {
   const metric = elements["table-metric"].value;
   if (!metric) throw new Error("No indexed metric is selected");
   const stage = elements["table-stage"].value;
+  const base = structuredClone(state.loadedTableSpec || {});
+  const keep = (values, selected) =>
+    Array.isArray(values) && values[0] === selected ? values : selected ? [selected] : [];
   return {
+    ...base,
     name: elements["table-name"].value.trim() || "table",
     artifact_root: elements["analytics-root"].value.trim() || "runs",
-    filters: { metrics: [metric], stages: stage ? [stage] : [], kinds: ["final"] },
+    filters: {
+      ...(base.filters || {}),
+      metrics: keep(base.filters?.metrics, metric),
+      stages: keep(base.filters?.stages, stage),
+      kinds: base.filters?.kinds?.length ? base.filters.kinds : ["final"],
+    },
     row: elements["table-row"].value,
     column: elements["table-column"].value,
-    aggregate: "mean_std",
+    aggregate: base.aggregate || "mean_std",
     precision: Number(elements["table-precision"].value),
     direction: elements["table-direction"].value,
-    bold_best: true,
-    underline_second: false,
+    bold_best: base.bold_best ?? true,
+    underline_second: base.underline_second ?? false,
     caption: elements["table-caption"].value.trim() || null,
     label: elements["table-label"].value.trim() || null,
-    missing: "--",
+    missing: base.missing || "--",
     max_rows: Number(elements["table-rows"].value),
     max_columns: Number(elements["table-columns"].value),
   };
@@ -1342,7 +1618,24 @@ async function reloadWorkspaceFiles() {
 async function exportReport(kind) {
   elements["analytics-error"].textContent = "";
   try {
-    const payload = kind === "chart" ? { spec: chartSpec(), formats: ["svg", "pdf"] } : { spec: tableSpec() };
+    const outputPath =
+      elements[kind === "chart" ? "chart-output" : "table-output"].value.trim() || null;
+    const formats =
+      kind === "chart"
+        ? elements["chart-formats"].value
+            .split(",")
+            .map((value) => value.trim().toLowerCase())
+            .filter(Boolean)
+        : [];
+    if (kind === "chart" && !formats.length) throw new Error("Select at least one chart format");
+    const payload =
+      kind === "chart"
+        ? {
+            spec: chartSpec(),
+            formats,
+            output_path: outputPath,
+          }
+        : { spec: tableSpec(), output_path: outputPath };
     const result = await api(`/api/analytics/${kind}/export`, {
       method: "POST",
       body: JSON.stringify(payload),
@@ -1354,15 +1647,61 @@ async function exportReport(kind) {
   }
 }
 
+function openProjectDialog() {
+  elements["project-error"].textContent = "";
+  const diagnostics = state.bootstrap.diagnostics || {};
+  const connection = state.bootstrap.connection || {};
+  const facts = [
+    ["ResearchAssistant", diagnostics.research_assistant || "unknown"],
+    ["Python", diagnostics.python || "unknown"],
+    ["Platform", diagnostics.platform || "unknown"],
+    ["Executable", diagnostics.executable || "unknown"],
+    ["Connection", `${connection.mode || "local"} · ${connection.hostname || "unknown"}`],
+    ["Plugins", state.bootstrap.plugins?.join(", ") || "none"],
+  ];
+  const host = elements["project-diagnostics"];
+  host.replaceChildren();
+  for (const [label, value] of facts) {
+    const item = document.createElement("div");
+    const title = document.createElement("span");
+    title.textContent = label;
+    const content = document.createElement("code");
+    content.textContent = value;
+    item.append(title, content);
+    host.append(item);
+  }
+  elements["project-dialog"].showModal();
+}
+
+async function initializeProject() {
+  elements["project-error"].textContent = "";
+  elements["initialize-project"].disabled = true;
+  try {
+    const result = await api("/api/project/init", {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    elements["project-result"].textContent =
+      `Created:\n${result.created.map((path) => `  ${path}`).join("\n")}\n\n` +
+      `Restart the UI with --plugin ${result.plugin} to load the scaffolded plugin.`;
+    await reloadWorkspaceFiles();
+  } catch (error) {
+    elements["project-error"].textContent = error.message || String(error);
+  } finally {
+    elements["initialize-project"].disabled = false;
+  }
+}
+
 function installEvents() {
   elements["file-filter"].addEventListener("input", renderFiles);
   elements["component-filter"].addEventListener("input", renderRegistry);
   elements["save-button"].addEventListener("click", saveActive);
-  elements["validate-button"].addEventListener("click", validateActive);
+  elements["validate-button"].addEventListener("click", openConfigInspector);
   elements["new-file-button"].addEventListener("click", openNewFile);
   elements["new-config-button"].addEventListener("click", openConfigCreator);
   elements["experiments-button"].addEventListener("click", openExperiments);
   elements["analytics-button"].addEventListener("click", openAnalytics);
+  elements["project-button"].addEventListener("click", openProjectDialog);
   elements["empty-create-button"].addEventListener("click", openConfigCreator);
   elements["clear-output"].addEventListener("click", () => setOutput("Ready", ""));
   elements["close-config-dialog"].addEventListener("click", closeConfigCreator);
@@ -1372,12 +1711,21 @@ function installEvents() {
   elements["config-dialog"].addEventListener("click", (event) => {
     if (event.target === elements["config-dialog"]) closeConfigCreator();
   });
+  elements["close-inspect-dialog"].addEventListener("click", () => elements["inspect-dialog"].close());
+  elements["inspect-dialog"].addEventListener("click", (event) => {
+    if (event.target === elements["inspect-dialog"]) elements["inspect-dialog"].close();
+  });
+  elements["run-inspection"].addEventListener("click", inspectActiveConfig);
   elements["close-experiments-dialog"].addEventListener("click", closeExperiments);
   elements["experiments-dialog"].addEventListener("click", (event) => {
     if (event.target === elements["experiments-dialog"]) closeExperiments();
   });
   elements["launch-form"].addEventListener("submit", submitLaunch);
   elements["launch-config"].addEventListener("change", previewLaunchPlan);
+  elements["launch-policy"].addEventListener("change", previewLaunchPlan);
+  elements["launch-artifacts"].addEventListener("change", previewLaunchPlan);
+  elements["launch-overrides"].addEventListener("change", previewLaunchPlan);
+  elements["launch-policy-overrides"].addEventListener("change", previewLaunchPlan);
   elements["refresh-launches"].addEventListener("click", refreshLaunches);
   elements["close-analytics-dialog"].addEventListener("click", () => elements["analytics-dialog"].close());
   elements["analytics-dialog"].addEventListener("click", (event) => {
@@ -1386,14 +1734,32 @@ function installEvents() {
   elements["refresh-analytics"].addEventListener("click", async () => {
     try {
       await refreshAnalytics(false);
+      await refreshRunOverview();
     } catch (error) {
       elements["analytics-error"].textContent = error.message || String(error);
     }
   });
+  elements["rebuild-analytics"].addEventListener("click", async () => {
+    try {
+      await refreshAnalytics(true);
+      await refreshRunOverview();
+    } catch (error) {
+      elements["analytics-error"].textContent = error.message || String(error);
+    }
+  });
+  elements["refresh-overview"].addEventListener("click", refreshRunOverview);
+  elements["analytics-overview-tab"].addEventListener("click", () => showAnalyticsPanel("overview"));
+  elements["analytics-builders-tab"].addEventListener("click", () => showAnalyticsPanel("builders"));
+  elements["load-report-spec"].addEventListener("click", loadReportSpec);
   elements["preview-chart"].addEventListener("click", previewChart);
   elements["export-chart"].addEventListener("click", () => exportReport("chart"));
   elements["preview-table"].addEventListener("click", previewTable);
   elements["export-table"].addEventListener("click", () => exportReport("table"));
+  elements["close-project-dialog"].addEventListener("click", () => elements["project-dialog"].close());
+  elements["project-dialog"].addEventListener("click", (event) => {
+    if (event.target === elements["project-dialog"]) elements["project-dialog"].close();
+  });
+  elements["initialize-project"].addEventListener("click", initializeProject);
   window.addEventListener("keydown", (event) => {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
       event.preventDefault();

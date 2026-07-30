@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import getpass
+import json
 import os
+import platform
 import shlex
 import socket
 import sys
@@ -11,8 +13,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from research_assistant import __version__
 from research_assistant.analytics import (
     ChartSpec,
     MetricIndex,
@@ -25,9 +29,19 @@ from research_assistant.errors import ResearchAssistantError
 from research_assistant.planning import Plan, compile_plan
 from research_assistant.plugins import load_registry
 from research_assistant.registry import Registry
-from research_assistant.reporting import render_latex_table, write_chart_bundle, write_table_bundle
+from research_assistant.reporting import (
+    collect_resource_summary,
+    collect_summary,
+    render_latex_table,
+    write_chart_bundle,
+    write_table_bundle,
+)
+from research_assistant.scaffold import initialize_project
 from research_assistant.ui.launches import LaunchCreateRequest, LaunchManager
 from research_assistant.ui.workspace import Workspace, WorkspaceConflict, WorkspaceError
+
+MAX_RUN_ROWS = 2000
+MAX_REPORT_ROWS = 2000
 
 
 class UiModel(BaseModel):
@@ -42,6 +56,8 @@ class FileWriteRequest(UiModel):
 class ConfigValidateRequest(UiModel):
     path: str
     content: str
+    overrides: list[str] = Field(default_factory=list)
+    include_manifests: bool = False
 
 
 class ComponentInput(UiModel):
@@ -76,13 +92,31 @@ class AnalyticsRootRequest(UiModel):
     rebuild: bool = False
 
 
+class RunCatalogRequest(UiModel):
+    artifact_root: str = "runs"
+    stage: str | None = None
+    metric: str | None = None
+    trial_ids: list[str] = Field(default_factory=list)
+    limit: int = Field(default=500, ge=1, le=MAX_RUN_ROWS)
+
+
+class ReportSpecLoadRequest(UiModel):
+    path: str
+    kind: Literal["chart", "table"]
+
+
 class ChartExportRequest(UiModel):
     spec: ChartSpec
-    formats: list[Literal["svg", "pdf", "png"]] = Field(default_factory=lambda: ["svg", "pdf"])
+    formats: list[Literal["svg", "pdf", "png"]] = Field(
+        default_factory=lambda: ["svg", "pdf"],
+        min_length=1,
+    )
+    output_path: str | None = None
 
 
 class TableExportRequest(UiModel):
     spec: TableSpec
+    output_path: str | None = None
 
 
 def _plan_summary(plan: Plan) -> dict[str, Any]:
@@ -93,6 +127,14 @@ def _plan_summary(plan: Plan) -> dict[str, Any]:
         "trials": len(trials),
         "trial_ids": trials,
         "run_ids": [run.run_id for run in plan.runs],
+        "run_details": [
+            {
+                "run_id": run.run_id,
+                "trial_id": run.trial_id,
+                "assignments": run.assignments,
+            }
+            for run in plan.runs
+        ],
     }
 
 
@@ -115,6 +157,84 @@ def _component_catalog(registry: Registry) -> list[dict[str, Any]]:
 def _registry_for_config(config_plugins: list[str], server_plugins: list[str]) -> Registry:
     modules = list(dict.fromkeys([*server_plugins, *config_plugins]))
     return load_registry(modules)
+
+
+def _read_json_mapping(path: Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _latest_gpu(
+    launcher: dict[str, Any],
+    resources: dict[str, Any],
+) -> dict[str, Any] | None:
+    gpu = launcher.get("gpu")
+    if isinstance(gpu, dict):
+        return gpu
+    attempts = resources.get("attempts")
+    if not isinstance(attempts, list):
+        return None
+    attempt_id = launcher.get("attempt_id")
+    for attempt in reversed(attempts):
+        if not isinstance(attempt, dict):
+            continue
+        if attempt_id is not None and attempt.get("attempt_id") != attempt_id:
+            continue
+        gpu = attempt.get("gpu")
+        return gpu if isinstance(gpu, dict) else None
+    return None
+
+
+def _catalog_runs(workspace: Workspace, root: Path, limit: int) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    total = 0
+    counts: dict[str, int] = {}
+    for status_path in sorted(root.glob("*/*/status.json")):
+        total += 1
+        status = _read_json_mapping(status_path)
+        state = str(status.get("state", "unknown"))
+        counts[state] = counts.get(state, 0) + 1
+        if len(rows) >= limit:
+            continue
+        run_dir = status_path.parent
+        manifest = _read_json_mapping(run_dir / "manifest.json")
+        launcher = _read_json_mapping(run_dir / "launcher.json")
+        resources = _read_json_mapping(run_dir / "resources.json")
+        manifest_config = manifest.get("config")
+        stages = status.get("stages")
+        total_resources = resources.get("total")
+        rows.append(
+            {
+                "study_id": str(manifest.get("study_id", run_dir.parent.name)),
+                "trial_id": str(manifest.get("trial_id", "unknown")),
+                "run_id": str(status.get("run_id", run_dir.name)),
+                "seed": manifest_config.get("seed") if isinstance(manifest_config, dict) else None,
+                "state": state,
+                "attempt": status.get("attempt"),
+                "updated_at": status.get("updated_at"),
+                "path": run_dir.relative_to(workspace.root).as_posix(),
+                "stages": {
+                    str(name): str(value.get("state", "unknown"))
+                    for name, value in stages.items()
+                    if isinstance(value, dict)
+                }
+                if isinstance(stages, dict)
+                else {},
+                "worker_pid": launcher.get("worker_pid"),
+                "gpu": _latest_gpu(launcher, resources),
+                "resources": total_resources if isinstance(total_resources, dict) else {},
+            }
+        )
+    return {
+        "root": root.relative_to(workspace.root).as_posix(),
+        "total": total,
+        "counts": counts,
+        "runs": rows,
+        "truncated": total > len(rows),
+    }
 
 
 def create_app(
@@ -204,10 +324,25 @@ def create_app(
                 "localhost_only": True,
                 "persistent_launches": True,
             },
+            "diagnostics": {
+                "research_assistant": __version__,
+                "python": platform.python_version(),
+                "platform": platform.platform(),
+                "executable": sys.executable,
+            },
             "plugins": server_plugins,
             "files": tree["entries"],
             "files_truncated": tree["truncated"],
             "components": _component_catalog(registry),
+        }
+
+    @app.post("/api/project/init", status_code=201)
+    def initialize_workspace_project() -> dict[str, Any]:
+        created = initialize_project(workspace.root)
+        return {
+            "created": [path.relative_to(workspace.root).as_posix() for path in created],
+            "restart_required": True,
+            "plugin": "ra_project.plugin",
         }
 
     @app.get("/api/files")
@@ -230,11 +365,13 @@ def create_app(
         }
 
     @app.post("/api/config/validate")
-    def validate_config(payload: ConfigValidateRequest) -> dict[str, Any]:
+    @app.post("/api/config/inspect")
+    def inspect_config(payload: ConfigValidateRequest) -> dict[str, Any]:
         source = workspace.resolve(payload.path)
         config = load_config_text(
             payload.content,
             source,
+            payload.overrides,
             allowed_root=workspace.root,
         )
         configured_registry = _registry_for_config(config.plugins, server_plugins)
@@ -242,7 +379,13 @@ def create_app(
         return {
             "valid": True,
             "experiment": config.experiment.name,
+            "rendered": dump_config(config),
             "plan": _plan_summary(plan),
+            "manifests": (
+                [manifest.model_dump(mode="json") for manifest in plan.runs]
+                if payload.include_manifests
+                else []
+            ),
         }
 
     @app.post("/api/config/create")
@@ -290,6 +433,10 @@ def create_app(
     def list_launches() -> dict[str, Any]:
         return {"launches": app.state.launch_manager.list()}
 
+    @app.post("/api/launches/preview")
+    def preview_launch(payload: LaunchCreateRequest) -> dict[str, Any]:
+        return app.state.launch_manager.preview(payload)
+
     @app.post("/api/launches", status_code=202)
     def create_launch(payload: LaunchCreateRequest) -> dict[str, Any]:
         return app.state.launch_manager.create(payload)
@@ -310,7 +457,12 @@ def create_app(
             app.state.metric_indices[key] = index
         return index
 
-    def report_destination(name: str) -> Path:
+    def report_destination(name: str, output_path: str | None = None) -> Path:
+        if output_path is not None:
+            destination = workspace.resolve(output_path)
+            if destination.exists() and not destination.is_dir():
+                raise WorkspaceError(f"report destination is not a directory: {output_path}")
+            return destination
         allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
         if name in {"", ".", ".."} or any(character not in allowed for character in name):
             raise WorkspaceError(
@@ -326,6 +478,41 @@ def create_app(
         index = analytics_index(payload.artifact_root)
         refresh = index.rebuild() if payload.rebuild else index.refresh()
         return {"refresh": refresh, "catalog": index.catalog()}
+
+    @app.post("/api/runs/catalog")
+    def run_catalog(payload: RunCatalogRequest) -> dict[str, Any]:
+        root_path = bounded_artifact_root(workspace.root, payload.artifact_root)
+        catalog = _catalog_runs(workspace, root_path, payload.limit)
+        summaries = collect_summary(root_path, stage=payload.stage, metric=payload.metric)
+        resources = collect_resource_summary(
+            root_path,
+            trial_ids=set(payload.trial_ids) or None,
+        )
+        return {
+            "catalog": catalog,
+            "summary": summaries[:MAX_REPORT_ROWS],
+            "summary_total": len(summaries),
+            "summary_truncated": len(summaries) > MAX_REPORT_ROWS,
+            "resources": resources[:MAX_REPORT_ROWS],
+            "resources_total": len(resources),
+            "resources_truncated": len(resources) > MAX_REPORT_ROWS,
+        }
+
+    @app.post("/api/analytics/spec/load")
+    def load_report_spec(payload: ReportSpecLoadRequest) -> dict[str, Any]:
+        source = workspace.read(payload.path)
+        try:
+            document = yaml.safe_load(source.content)
+            model = ChartSpec if payload.kind == "chart" else TableSpec
+            spec = model.model_validate(document)
+        except (yaml.YAMLError, ValidationError) as exc:
+            raise WorkspaceError(f"invalid {payload.kind} spec {payload.path}: {exc}") from exc
+        bounded_artifact_root(workspace.root, spec.artifact_root)
+        return {
+            "path": source.path,
+            "kind": payload.kind,
+            "spec": spec.model_dump(mode="json"),
+        }
 
     @app.post("/api/analytics/chart")
     def analytics_chart(spec: ChartSpec) -> dict[str, Any]:
@@ -344,7 +531,7 @@ def create_app(
     def analytics_chart_export(payload: ChartExportRequest) -> dict[str, Any]:
         index = analytics_index(payload.spec.artifact_root)
         index.refresh()
-        destination = report_destination(payload.spec.name)
+        destination = report_destination(payload.spec.name, payload.output_path)
         write_chart_bundle(index, payload.spec, destination, formats=tuple(payload.formats))
         return {"path": destination.relative_to(workspace.root).as_posix()}
 
@@ -352,7 +539,7 @@ def create_app(
     def analytics_table_export(payload: TableExportRequest) -> dict[str, Any]:
         index = analytics_index(payload.spec.artifact_root)
         index.refresh()
-        destination = report_destination(payload.spec.name)
+        destination = report_destination(payload.spec.name, payload.output_path)
         write_table_bundle(index, payload.spec, destination)
         return {"path": destination.relative_to(workspace.root).as_posix()}
 

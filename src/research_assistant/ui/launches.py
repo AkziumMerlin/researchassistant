@@ -38,6 +38,8 @@ class LaunchCreateRequest(BaseModel):
     launcher_path: str | None = None
     artifact_root: str | None = None
     resume: bool = True
+    overrides: list[str] = Field(default_factory=list)
+    launcher_overrides: list[str] = Field(default_factory=list)
 
 
 def _utc_now() -> str:
@@ -90,6 +92,14 @@ def _plan_summary(plan: Plan) -> dict[str, Any]:
         "trials": len({run.trial_id for run in plan.runs}),
         "run_ids": [run.run_id for run in plan.runs],
         "trial_ids": sorted({run.trial_id for run in plan.runs}),
+        "run_details": [
+            {
+                "run_id": run.run_id,
+                "trial_id": run.trial_id,
+                "assignments": run.assignments,
+            }
+            for run in plan.runs
+        ],
     }
 
 
@@ -135,6 +145,7 @@ class LaunchManager:
         config = load_config_text(
             config_file.content,
             source,
+            payload.overrides,
             allowed_root=self.workspace.root,
         )
         plugins = list(dict.fromkeys([*self.server_plugins, *config.plugins]))
@@ -149,10 +160,11 @@ class LaunchManager:
                 raise UiLaunchError("launcher policy must be a YAML file")
             launcher_path = launcher_file.path
             launcher_reference = load_launcher_reference(
-                self.workspace.resolve(launcher_file.path)
+                self.workspace.resolve(launcher_file.path),
+                payload.launcher_overrides,
             )
         else:
-            launcher_reference = load_launcher_reference(None)
+            launcher_reference = load_launcher_reference(None, payload.launcher_overrides)
         configured = registry.invoke("launcher", launcher_reference, None)
         if not isinstance(configured, LocalSubprocessLauncher):
             raise UiLaunchError("launcher does not implement the local launcher contract")
@@ -169,11 +181,26 @@ class LaunchManager:
             "artifact_root": str(artifact_root),
             "artifact_root_relative": artifact_root.relative_to(self.workspace.root).as_posix(),
             "resume": payload.resume,
+            "overrides": payload.overrides,
+            "launcher_overrides": payload.launcher_overrides,
             "config": config.model_dump(mode="json"),
             "launcher": launcher_reference.model_dump(mode="json"),
             "plan": plan_payload,
         }
         return request, plan, plan_payload
+
+    def preview(self, payload: LaunchCreateRequest) -> dict[str, Any]:
+        request, _plan, plan_payload = self._prepare(payload)
+        return {
+            "config_path": request["config_path"],
+            "launcher_path": request["launcher_path"],
+            "artifact_root": request["artifact_root_relative"],
+            "resume": request["resume"],
+            "overrides": request["overrides"],
+            "launcher_overrides": request["launcher_overrides"],
+            "launcher": request["launcher"],
+            "plan": plan_payload,
+        }
 
     def create(self, payload: LaunchCreateRequest) -> dict[str, Any]:
         request, _plan, _plan_payload = self._prepare(payload)
@@ -333,6 +360,8 @@ class LaunchManager:
             "launcher_path": request.get("launcher_path"),
             "artifact_root": request.get("artifact_root_relative"),
             "resume": request.get("resume", True),
+            "overrides": request.get("overrides", []),
+            "launcher_overrides": request.get("launcher_overrides", []),
             "plan": request.get("plan", {}),
             "scheduler_pid": pid_value,
             "scheduler_alive": scheduler_alive,
