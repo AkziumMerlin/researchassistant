@@ -78,7 +78,10 @@ stages:
     assert "Selection protocol" in index.text
     assert "frame-ancestors 'none'" in index.headers["content-security-policy"]
     asset_path = re.search(r'src="(/assets/[^"]+\.js)"', index.text).group(1)
-    assert client.get(asset_path).status_code == 200
+    frontend = client.get(asset_path)
+    assert frontend.status_code == 200
+    assert "/api/bootstrap" in frontend.text
+    assert "monaco-base-common-" not in frontend.text
 
     bootstrap = client.get("/api/bootstrap")
     assert bootstrap.status_code == 200
