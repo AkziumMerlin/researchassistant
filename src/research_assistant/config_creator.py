@@ -196,7 +196,9 @@ class ConfigCreator:
         specs = [
             spec
             for spec in self.registry.list()
-            if spec.kind not in {"stage", "launcher"} and spec.kind not in components
+            if spec.catalog == "component"
+            and spec.kind not in {"stage", "launcher"}
+            and spec.kind not in components
         ]
         default = first_default
         while specs and self.prompt.confirm("Add a registered component?", default=default):

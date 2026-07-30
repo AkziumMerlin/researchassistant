@@ -32,6 +32,7 @@ from research_assistant.checkpoints import (
 from research_assistant.config import dump_config, load_config_text
 from research_assistant.config_creator import assemble_config
 from research_assistant.errors import ResearchAssistantError
+from research_assistant.integrations.torch_graph import TorchGraphParams, validate_graph
 from research_assistant.planning import Plan, compile_plan
 from research_assistant.plugins import load_registry
 from research_assistant.registry import Registry
@@ -93,6 +94,10 @@ class ConfigCreateRequest(UiModel):
     devices: int = Field(default=1, ge=1)
     memory_gb: float | None = Field(default=None, gt=0)
     artifact_root: str = "runs"
+
+
+class GraphValidateRequest(UiModel):
+    params: TorchGraphParams
 
 
 class AnalyticsRootRequest(UiModel):
@@ -177,6 +182,9 @@ def _component_catalog(registry: Registry) -> list[dict[str, Any]]:
                 "name": spec.name,
                 "description": spec.description,
                 "provider": spec.provider,
+                "catalog": spec.catalog,
+                "editor": spec.editor,
+                "metadata": dict(spec.metadata or {}),
                 "schema": schema,
             }
         )
@@ -456,6 +464,16 @@ def create_app(
             "path": payload.path,
             "content": dump_config(config, compact=True),
             "plan": _plan_summary(plan),
+        }
+
+    @app.post("/api/torch/graph/validate")
+    def validate_torch_graph(payload: GraphValidateRequest) -> dict[str, Any]:
+        validate_graph(payload.params, registry)
+        return {
+            "valid": True,
+            "nodes": len(payload.params.nodes),
+            "inputs": payload.params.input_names,
+            "outputs": payload.params.outputs,
         }
 
     @app.get("/api/launches")

@@ -44,6 +44,8 @@ the UI deliberately rejects `0.0.0.0` and other remote bindings.
 - multiple file models, tab-local undo history, syntax highlighting, find, folding, and `Ctrl+S`;
 - new UTF-8 text files without implicit directory creation;
 - live catalog of registered component types and their schema fields;
+- a PyTorch model-graph editor with a searchable standard-module palette, draggable nodes,
+  visual edges, multi-input operations, and server-side DAG validation;
 - a visual config creator generated from component Pydantic schemas;
 - enum, boolean, number, required-field, array, and object inputs;
 - multiple seeds, resources, stages, and stage dependencies;

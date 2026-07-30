@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from research_assistant.errors import ExecutionError
 from research_assistant.execution import StageContext, StageResult
+from research_assistant.integrations.torch_graph import register as register_torch_graph
 from research_assistant.registry import Registry
 
 
@@ -503,6 +504,7 @@ def run_predict(params: TorchPredictParams, context: StageContext) -> StageResul
 
 
 def register(registry: Registry) -> None:
+    register_torch_graph(registry)
     registry.add(
         "stage",
         "torch/fit",

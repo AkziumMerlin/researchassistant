@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -10,6 +10,7 @@ from research_assistant.errors import RegistryError
 from research_assistant.models import COMPONENT_NAME_PATTERN, ComponentRef
 
 Factory = Callable[[BaseModel, Any], Any]
+ComponentValidator = Callable[[BaseModel, "Registry"], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +21,10 @@ class ComponentSpec:
     schema: type[BaseModel]
     description: str = ""
     provider: str = "local"
+    catalog: str = "component"
+    editor: str | None = None
+    metadata: Mapping[str, Any] | None = None
+    validator: ComponentValidator | None = None
 
 
 class Registry:
@@ -35,6 +40,10 @@ class Registry:
         schema: type[BaseModel],
         description: str = "",
         provider: str = "local",
+        catalog: str = "component",
+        editor: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        validator: ComponentValidator | None = None,
     ) -> None:
         import re
 
@@ -53,6 +62,10 @@ class Registry:
             schema=schema,
             description=description,
             provider=provider,
+            catalog=catalog,
+            editor=editor,
+            metadata=dict(metadata or {}),
+            validator=validator,
         )
 
     def get(self, kind: str, name: str) -> ComponentSpec:
@@ -75,9 +88,19 @@ class Registry:
             reference = ComponentRef.model_validate(reference)
         spec = self.get(kind, reference.type)
         try:
-            return spec.schema.model_validate(reference.params)
+            params = spec.schema.model_validate(reference.params)
         except ValidationError as exc:
             raise RegistryError(f"invalid parameters for {kind} {reference.type}: {exc}") from exc
+        if spec.validator is not None:
+            try:
+                spec.validator(params, self)
+            except RegistryError:
+                raise
+            except (TypeError, ValueError) as exc:
+                raise RegistryError(
+                    f"invalid parameters for {kind} {reference.type}: {exc}"
+                ) from exc
+        return params
 
     def invoke(self, kind: str, reference: ComponentRef | dict[str, Any], context: Any) -> Any:
         if not isinstance(reference, ComponentRef):

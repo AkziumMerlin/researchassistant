@@ -176,6 +176,62 @@
       </form>
     </dialog>
 
+    <dialog id="model-graph-dialog" class="model-graph-dialog">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">PYTORCH DAG</span>
+          <h2>Design model architecture</h2>
+        </div>
+        <button id="close-model-graph" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="model-graph-toolbar">
+        <label class="field graph-input-names">
+          <span>Model inputs</span>
+          <input id="graph-input-names" value="input" placeholder="input, context" />
+        </label>
+        <span id="graph-status" class="graph-status">Add a module to begin.</span>
+        <button id="validate-model-graph" class="button compact ghost" type="button">
+          Validate graph
+        </button>
+      </div>
+      <div class="model-graph-grid">
+        <aside class="graph-palette">
+          <label class="search-box">
+            <span class="sr-only">Filter PyTorch modules</span>
+            <input id="graph-palette-filter" type="search" placeholder="Filter modules…" />
+          </label>
+          <div id="graph-palette-list" class="graph-palette-list"></div>
+        </aside>
+        <section class="graph-canvas-shell">
+          <div class="graph-hint">
+            Drag nodes to arrange them. Click an output port, then an input port, to connect.
+          </div>
+          <div id="graph-canvas-scroll" class="graph-canvas-scroll">
+            <div id="graph-canvas" class="graph-canvas">
+              <svg id="graph-edges" class="graph-edges" aria-hidden="true"></svg>
+              <div id="graph-nodes" class="graph-nodes"></div>
+            </div>
+          </div>
+        </section>
+        <aside class="graph-inspector">
+          <div class="section-heading">
+            <h3>Node inspector</h3>
+            <span id="graph-selection-kind">nothing selected</span>
+          </div>
+          <div id="graph-inspector-content" class="graph-inspector-content">
+            Select a module node to edit its parameters and inputs.
+          </div>
+        </aside>
+      </div>
+      <div id="graph-error" class="form-error" role="alert"></div>
+      <div class="dialog-actions">
+        <button id="cancel-model-graph" class="button ghost" type="button">Cancel</button>
+        <button id="apply-model-graph" class="button primary" type="button">
+          Apply architecture
+        </button>
+      </div>
+    </dialog>
+
     <dialog id="inspect-dialog" class="inspect-dialog">
       <div class="dialog-heading">
         <div>

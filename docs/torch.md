@@ -24,6 +24,51 @@ The recipe receives the model, untouched batch, and resolved `torch.device`. It 
 how to unpack and move a batch, how to call the model, and whether evaluation means one-step
 prediction, autoregressive rollout, sampling, or another protocol.
 
+## Registry graph models
+
+ResearchAssistant registers `model: torch/graph` together with a catalog of standard
+`torch_module` components. The catalog covers linear, convolutional and transposed-convolutional
+layers; normalization; common activations; dropout; pooling; shape operations; embeddings; and
+multi-input add, multiply, and concatenate nodes. PyTorch is still imported only when the model is
+constructed for execution.
+
+A graph model is stored entirely in the normal experiment config:
+
+```yaml
+components:
+  model:
+    type: torch/graph
+    params:
+      input_names: [input]
+      nodes:
+        - id: hidden
+          type: torch.nn/Linear
+          inputs: [input]
+          params: {in_features: 16, out_features: 64}
+          position: {x: 280, y: 80}
+        - id: activation
+          type: torch.nn/GELU
+          inputs: [hidden]
+          position: {x: 510, y: 80}
+        - id: output
+          type: torch.nn/Linear
+          inputs: [activation]
+          params: {in_features: 64, out_features: 4}
+          position: {x: 740, y: 80}
+      outputs: [output]
+```
+
+Node order is not semantically significant. Validation resolves a topological order and rejects
+unknown references, cycles, duplicate names, invalid nested module parameters, and incorrect input
+arity. One graph input can be passed positionally; multiple inputs can be passed positionally in
+`input_names` order or as exactly matching keyword arguments. A single configured output is
+returned directly, while multiple outputs are returned as a tuple.
+
+The browser config creator exposes the same representation through a graph canvas. Modules are
+added from the registered palette, dragged into place, connected through ports, and edited through
+their Pydantic-derived parameter forms. Applying the graph calls the server-side registry
+validator before it can enter the generated YAML.
+
 ## Fit lifecycle
 
 `torch/fit` performs the following operations:

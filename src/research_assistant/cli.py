@@ -215,6 +215,9 @@ def describe_component(
             "name": spec.name,
             "description": spec.description,
             "provider": spec.provider,
+            "catalog": spec.catalog,
+            "editor": spec.editor,
+            "metadata": dict(spec.metadata or {}),
             "schema": registry.schema(kind, name),
         }
     except ResearchAssistantError as exc:

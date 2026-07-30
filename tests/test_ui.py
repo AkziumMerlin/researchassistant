@@ -76,11 +76,13 @@ stages:
     assert "Inspect experiment" in index.text
     assert "Evaluate, compare and publish" in index.text
     assert "Selection protocol" in index.text
+    assert "Design model architecture" in index.text
     assert "frame-ancestors 'none'" in index.headers["content-security-policy"]
     asset_path = re.search(r'src="(/assets/[^"]+\.js)"', index.text).group(1)
     frontend = client.get(asset_path)
     assert frontend.status_code == 200
     assert "/api/bootstrap" in frontend.text
+    assert "/api/torch/graph/validate" in frontend.text
     assert "monaco-base-common-" not in frontend.text
 
     bootstrap = client.get("/api/bootstrap")
@@ -90,6 +92,31 @@ stages:
     assert payload["diagnostics"]["research_assistant"]
     assert payload["diagnostics"]["python"]
     assert any(spec["name"] == "core/noop" for spec in payload["components"])
+    assert any(
+        spec["name"] == "torch/graph" and spec["editor"] == "torch-graph"
+        for spec in payload["components"]
+    )
+    assert any(
+        spec["name"] == "torch.nn/Conv2d" and spec["catalog"] == "graph-node"
+        for spec in payload["components"]
+    )
+
+    graph = {
+        "input_names": ["input"],
+        "nodes": [
+            {
+                "id": "output",
+                "type": "torch.nn/Linear",
+                "inputs": ["input"],
+                "params": {"in_features": 4, "out_features": 2},
+                "position": {"x": 200, "y": 40},
+            }
+        ],
+        "outputs": ["output"],
+    }
+    graph_validation = client.post("/api/torch/graph/validate", json={"params": graph})
+    assert graph_validation.status_code == 200, graph_validation.text
+    assert graph_validation.json()["nodes"] == 1
 
     opened = client.get("/api/files", params={"path": "configs/smoke.yaml"}).json()
     saved = client.put(
@@ -144,6 +171,18 @@ stages:
     assert generated_payload["plan"]["runs"] == 2
     assert "seed:" in generated_payload["content"]
     assert "components: {}" not in generated_payload["content"]
+
+    graph_generated = client.post(
+        "/api/config/create",
+        json={
+            "path": "configs/graph.yaml",
+            "experiment_name": "graph",
+            "components": [{"kind": "model", "type": "torch/graph", "params": graph}],
+            "stages": [{"name": "fit", "type": "core/noop", "params": {}}],
+        },
+    )
+    assert graph_generated.status_code == 200, graph_generated.text
+    assert "torch/graph" in graph_generated.json()["content"]
 
 
 def test_ui_validation_cannot_follow_extends_outside_workspace(tmp_path: Path) -> None:

@@ -31,6 +31,7 @@ training framework. Projects add those concepts as namespaced components.
 - shared-GPU subprocess scheduling with configurable memory/utilization gates;
 - per-attempt compute telemetry and trial-aware historical memory estimates;
 - an interactive schema-driven config creator built from registered components;
+- a validated PyTorch DAG model and visual architecture editor with standard layers;
 - a bundled Monaco workbench for editing files and visually creating/validating configs;
 - detached experiment launch and run-status monitoring from the browser;
 - an incremental SQLite metric index with UI chart and LaTeX-table builders;
