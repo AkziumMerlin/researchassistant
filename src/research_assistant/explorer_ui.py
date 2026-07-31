@@ -105,6 +105,7 @@ def _register(app, server_module) -> None:
     static_root = Path(server_module.__file__).with_name("static")
     index_path = static_root / "index.html"
     architecture_script_path = static_root / "architecture-extension.js"
+    architecture_parts_root = static_root / "architecture-v2"
 
     @app.middleware("http")
     async def explorer_assets(request: Request, call_next):
@@ -132,7 +133,7 @@ def _register(app, server_module) -> None:
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-ResearchAssistant-UI-Build"] = str(_PATCH_VERSION)
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; "
             "worker-src 'self' blob:; img-src 'self' data: blob:; connect-src 'self'; "
             "font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
         )
@@ -176,6 +177,18 @@ def _register(app, server_module) -> None:
             architecture_script_path.read_text(encoding="utf-8"),
             media_type="application/javascript",
         )
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-ResearchAssistant-UI-Build"] = str(_PATCH_VERSION)
+        return response
+
+    @app.get("/api/extensions/architecture-v2/{part_name}")
+    def architecture_extension_part(part_name: str):
+        if re.fullmatch(r"part-[0-9]{2}\.txt", part_name) is None:
+            raise ResearchAssistantError("invalid architecture extension part")
+        path = architecture_parts_root / part_name
+        if not path.is_file():
+            raise ResearchAssistantError("architecture extension part is missing")
+        response = Response(path.read_text(encoding="utf-8"), media_type="text/plain")
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-ResearchAssistant-UI-Build"] = str(_PATCH_VERSION)
         return response
