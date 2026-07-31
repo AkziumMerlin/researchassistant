@@ -13,6 +13,7 @@ export default defineConfig({
       enforce: "pre",
       transform(code, id) {
         if (!id.endsWith("/src/main.js")) return null;
+        if (code.includes('    "connection-status",\n')) return null;
         if (!code.includes(workspaceElementNeedle)) {
           throw new Error("Could not locate the frontend workspace element registry");
         }
