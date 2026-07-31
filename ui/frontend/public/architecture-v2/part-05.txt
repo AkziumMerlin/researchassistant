@@ -1,0 +1,220 @@
+end(field("Default branch", fallback));
+  }
+
+  function syncControlPorts(node) {
+    const template = graph().subgraphs[node.template];
+    if (!template) return;
+    const sources = availableSources(node.id);
+    const oldSources = Object.values(node.inputs || {});
+    node.inputs = Object.fromEntries(
+      template.input_names.map((name, index) => [name, oldSources[index] || sources[0] || currentTemplate().input_names[0]]),
+    );
+    node.output_ports = Object.keys(template.outputs);
+  }
+
+  function renderInspector() {
+    ui.inspector.replaceChildren();
+    const node = currentTemplate().nodes.find((item) => item.id === state.selectedNode);
+    if (!node) {
+      ui.inspector.textContent = "Select a module or control node.";
+      return;
+    }
+    const label = element("input");
+    label.value = node.label || "";
+    label.onchange = () => {
+      node.label = label.value.trim() || null;
+      renderGraph();
+    };
+    ui.inspector.append(field("Label", label));
+    const id = element("input");
+    id.value = node.id;
+    id.onchange = () => renameNode(node, id.value.trim());
+    ui.inspector.append(field("Node id", id));
+    renderInputs(node);
+    renderOutputs(node);
+    if (node.kind === "module") renderModuleParameters(node);
+    if (node.kind === "python") renderPython(node);
+    if (node.kind === "composite") renderComposite(node);
+    if (node.kind === "repeat") renderRepeat(node);
+    if (node.kind === "switch") renderSwitch(node);
+
+    ui.inspector.append(element("div", "ra-inspector-title", "Expose graph outputs"));
+    for (const port of node.output_ports) {
+      const source = node.output_ports.length === 1 ? node.id : `${node.id}.${port}`;
+      const existing = Object.entries(currentTemplate().outputs).find(([, value]) => value === source);
+      const row = element("div", "ra-output-row");
+      const checkbox = element("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = Boolean(existing);
+      const outputName = element("input");
+      outputName.value = existing?.[0] || port;
+      outputName.disabled = !checkbox.checked;
+      checkbox.onchange = () => {
+        if (checkbox.checked) currentTemplate().outputs[outputName.value || port] = source;
+        else if (existing) delete currentTemplate().outputs[existing[0]];
+        renderGraph();
+      };
+      outputName.onchange = () => {
+        if (!checkbox.checked) return;
+        if (existing) delete currentTemplate().outputs[existing[0]];
+        currentTemplate().outputs[outputName.value.trim()] = source;
+        renderGraph();
+      };
+      row.append(checkbox, outputName, element("code", null, source));
+      ui.inspector.append(row);
+    }
+    const remove = element("button", "button compact ghost danger", "Delete node");
+    remove.onclick = () => deleteNode(node);
+    ui.inspector.append(remove);
+  }
+
+  function renameNode(node, newId) {
+    if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(newId)) throw new Error("Invalid node id");
+    if (newId !== node.id && currentTemplate().nodes.some((item) => item.id === newId)) {
+      throw new Error(`Node ${newId} already exists`);
+    }
+    const old = node.id;
+    node.id = newId;
+    const replaceSource = (source) => (source === old ? newId : source.startsWith(`${old}.`) ? `${newId}${source.slice(old.length)}` : source);
+    for (const item of currentTemplate().nodes) {
+      if (Array.isArray(item.inputs)) item.inputs = item.inputs.map(replaceSource);
+      else item.inputs = Object.fromEntries(Object.entries(item.inputs).map(([name, source]) => [name, replaceSource(source)]));
+    }
+    currentTemplate().outputs = Object.fromEntries(Object.entries(currentTemplate().outputs).map(([name, source]) => [name, replaceSource(source)]));
+    state.selectedNode = newId;
+    renderGraph();
+  }
+
+  function deleteNode(node) {
+    currentTemplate().nodes = currentTemplate().nodes.filter((item) => item.id !== node.id);
+    const owns = (source) => source === node.id || source.startsWith(`${node.id}.`);
+    for (const item of currentTemplate().nodes) {
+      if (Array.isArray(item.inputs)) item.inputs = item.inputs.filter((source) => !owns(source));
+      else item.inputs = Object.fromEntries(Object.entries(item.inputs).filter(([, source]) => !owns(source)));
+    }
+    currentTemplate().outputs = Object.fromEntries(Object.entries(currentTemplate().outputs).filter(([, source]) => !owns(source)));
+    if (!Object.keys(currentTemplate().outputs).length) currentTemplate().outputs = { output: currentTemplate().input_names[0] };
+    state.selectedNode = null;
+    renderGraph();
+  }
+
+  function captureTemplateFields() {
+    const inputs = ui.templateInputs.value.split(",").map((item) => item.trim()).filter(Boolean);
+    if (!inputs.length || inputs.some((item) => !/^[A-Za-z][A-Za-z0-9_]*$/.test(item))) {
+      throw new Error("Template input ports must be comma-separated identifiers");
+    }
+    currentTemplate().input_names = [...new Set(inputs)];
+    const outputs = parseJson(ui.templateOutputs.value, "output mapping");
+    if (!outputs || Array.isArray(outputs) || typeof outputs !== "object" || !Object.keys(outputs).length) {
+      throw new Error("Template outputs must be a non-empty JSON mapping");
+    }
+    currentTemplate().outputs = outputs;
+  }
+
+  async function validateArchitecture() {
+    captureMetadata();
+    captureTemplateFields();
+    clearError();
+    const response = await api("/api/torch/parameterized-graph/validate", {
+      method: "POST",
+      body: JSON.stringify({ params: graph() }),
+    });
+    ui.status.textContent = `Valid architecture · ${response.nodes} total nodes · ${response.subgraphs} subgraphs · ${response.variables} variables`;
+    ui.status.classList.add("ra-models-valid");
+    return response;
+  }
+
+  async function saveArchitecture() {
+    await validateArchitecture();
+    const path = ui.path.value.trim();
+    if (!/^architectures\/.+\.json$/.test(path)) throw new Error("Architecture path must be architectures/*.json");
+    const content = `${JSON.stringify(state.document, null, 2)}\n`;
+    const response = await api(`/api/files?path=${encodeURIComponent(path)}`, {
+      method: "PUT",
+      body: JSON.stringify({ content, revision: path === state.path ? state.revision : null }),
+    });
+    state.path = path;
+    state.revision = response.revision;
+    await refresh();
+    ui.status.textContent = `Saved ${path}`;
+  }
+
+  async function loadArchitecture(path) {
+    const response = await api(`/api/files?path=${encodeURIComponent(path)}`);
+    state.document = normalizeDocument(JSON.parse(response.content));
+    state.path = path;
+    state.revision = response.revision;
+    state.activeTemplate = ROOT;
+    state.selectedNode = state.document.graph.nodes[0]?.id || null;
+    syncAll();
+  }
+
+  function resetArchitecture() {
+    state.document = freshDocument();
+    state.path = null;
+    state.revision = null;
+    state.activeTemplate = ROOT;
+    state.selectedNode = null;
+    syncAll();
+  }
+
+  function syncAll() {
+    syncMetadata();
+    renderVariables();
+    renderTemplateNavigation();
+    renderPalette();
+    renderGraph();
+  }
+
+  async function refresh() {
+    state.bootstrap = await api("/api/bootstrap");
+    const catalog = await api("/api/architectures");
+    state.files = catalog.architectures;
+    renderArchitectureList();
+    renderPalette();
+    enhanceConfigCreator();
+  }
+
+  async function openModels() {
+    clearError();
+    await refresh();
+    syncAll();
+    dialog.showModal();
+  }
+
+  function evaluateEnabled(condition, values) {
+    if (!condition) return true;
+    const text = condition.trim();
+    const orParts = text.split(/\s+(?:or|\|\|)\s+/);
+    if (orParts.length > 1) return orParts.some((part) => evaluateEnabled(part, values));
+    const andParts = text.split(/\s+(?:and|&&)\s+/);
+    if (andParts.length > 1) return andParts.every((part) => evaluateEnabled(part, values));
+    if (text.startsWith("not ")) return !evaluateEnabled(text.slice(4), values);
+    const match = text.match(/^([A-Za-z][A-Za-z0-9_]*)\s*(==|!=)\s*(.+)$/);
+    if (match) {
+      const [, name, operation, raw] = match;
+      let expected;
+      try {
+        expected = JSON.parse(raw.replaceAll("'", '"'));
+      } catch {
+        expected = raw.trim();
+      }
+      return operation === "==" ? values[name] === expected : values[name] !== expected;
+    }
+    return Boolean(values[text]);
+  }
+
+  function configVariableInput(name, graphValue, onChange) {
+    const spec = graphValue.variable_specs?.[name] || { type: inferVariableType(graphValue.variables[name]) };
+    const value = graphValue.variables[name];
+    if (spec.type === "bool") {
+      const input = element("input");
+      input.type = "checkbox";
+      input.checked = Boolean(value);
+      input.onchange = () => onChange(input.checked);
+      return input;
+    }
+    if (spec.type === "enum") {
+      const select = element("select");
+      for (const choice of spec.choices || []) {
+        const option = element("option", null, S

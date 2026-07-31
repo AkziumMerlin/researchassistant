@@ -1,0 +1,643 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>ResearchAssistant</title>
+    <script type="module" crossorigin src="/assets/index-CiLNOhAW.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-DNrHTknS.css">
+  </head>
+  <body>
+    <div id="app-shell">
+      <header class="topbar">
+        <div class="brand" aria-label="ResearchAssistant">
+          <span class="brand-mark">RA</span>
+          <span class="brand-name">ResearchAssistant</span>
+          <span class="mvp-badge">LOCAL</span>
+        </div>
+        <div class="workspace-heading">
+          <span class="eyebrow">WORKSPACE</span>
+          <strong id="workspace-name">Loading…</strong>
+        </div>
+        <div class="topbar-actions">
+          <button id="new-file-button" class="button ghost" type="button">New file</button>
+          <button id="new-config-button" class="button ghost" type="button">New config</button>
+          <button id="experiments-button" class="button ghost" type="button">Launch</button>
+          <button id="checkpoints-button" class="button ghost" type="button">Checkpoints</button>
+          <button id="analytics-button" class="button ghost" type="button">Reports</button>
+          <button id="project-button" class="button ghost" type="button">Project</button>
+          <button id="validate-button" class="button ghost" type="button" disabled>Inspect</button>
+          <button id="save-button" class="button primary" type="button" disabled>Save</button>
+        </div>
+      </header>
+
+      <main class="workbench">
+        <aside class="sidebar explorer-panel">
+          <div class="panel-heading">
+            <span>Explorer</span>
+            <span id="file-count" class="counter">0</span>
+          </div>
+          <label class="search-box">
+            <span class="sr-only">Filter files</span>
+            <input id="file-filter" type="search" placeholder="Filter files…" autocomplete="off" />
+          </label>
+          <div id="file-tree" class="file-tree" role="tree" aria-label="Workspace files"></div>
+        </aside>
+
+        <section class="editor-column">
+          <div id="tabs" class="tabs" role="tablist" aria-label="Open files"></div>
+          <div id="empty-state" class="empty-state">
+            <div class="empty-symbol">RA</div>
+            <h1>Local experiment workbench</h1>
+            <p>Open a project file, or build a typed configuration from the component registry.</p>
+            <button id="empty-create-button" class="button primary" type="button">Create config</button>
+            <span class="shortcut"><kbd>Ctrl</kbd><kbd>S</kbd> saves the active file</span>
+          </div>
+          <div id="editor" class="editor" aria-label="File editor"></div>
+          <section id="output-panel" class="output-panel" aria-live="polite">
+            <div class="output-heading">
+              <span id="output-title">Ready</span>
+              <button id="clear-output" class="icon-button" type="button" aria-label="Clear output">×</button>
+            </div>
+            <pre id="output-content">Select a YAML experiment to validate its registry and run plan.</pre>
+          </section>
+        </section>
+
+        <aside class="sidebar registry-panel">
+          <div class="panel-heading">
+            <span>Registry</span>
+            <span id="component-count" class="counter">0</span>
+          </div>
+          <label class="search-box">
+            <span class="sr-only">Filter components</span>
+            <input
+              id="component-filter"
+              type="search"
+              placeholder="Filter components…"
+              autocomplete="off"
+            />
+          </label>
+          <div id="registry-list" class="registry-list"></div>
+        </aside>
+      </main>
+
+      <footer class="statusbar">
+        <span id="connection-status"><span class="status-dot"></span> local</span>
+        <span id="active-language">plain text</span>
+        <span id="cursor-position">Ln 1, Col 1</span>
+        <span id="save-status">No file open</span>
+      </footer>
+    </div>
+
+    <dialog id="config-dialog" class="config-dialog">
+      <form id="config-form" method="dialog">
+        <div class="dialog-heading">
+          <div>
+            <span class="eyebrow">REGISTRY-DRIVEN</span>
+            <h2>Create experiment config</h2>
+          </div>
+          <button id="close-config-dialog" class="icon-button" type="button" aria-label="Close">×</button>
+        </div>
+
+        <div class="creator-grid">
+          <section class="creator-section">
+            <h3>Experiment</h3>
+            <div class="field-grid">
+              <label class="field wide">
+                <span>File path</span>
+                <input id="creator-path" name="path" value="configs/experiment.yaml" required />
+              </label>
+              <label class="field">
+                <span>Name</span>
+                <input id="creator-name" name="experiment_name" value="experiment" required />
+              </label>
+              <label class="field">
+                <span>Seeds</span>
+                <input id="creator-seeds" name="seeds" value="0" placeholder="0, 1, 2" required />
+              </label>
+              <label class="field wide">
+                <span>Description</span>
+                <input id="creator-description" name="description" placeholder="Optional" />
+              </label>
+              <label class="field wide">
+                <span>Tags</span>
+                <input id="creator-tags" name="tags" placeholder="baseline, ablation" />
+              </label>
+            </div>
+          </section>
+
+          <section class="creator-section">
+            <div class="section-heading">
+              <h3>Components</h3>
+              <span>one per kind</span>
+            </div>
+            <div id="creator-components" class="creator-items"></div>
+          </section>
+
+          <section class="creator-section">
+            <div class="section-heading">
+              <h3>Stages</h3>
+              <button id="add-stage-button" class="button compact ghost" type="button">Add stage</button>
+            </div>
+            <div id="creator-stages" class="creator-items"></div>
+          </section>
+
+          <section class="creator-section">
+            <h3>Resources</h3>
+            <div class="field-grid four-columns">
+              <label class="field">
+                <span>Accelerator</span>
+                <select id="creator-accelerator">
+                  <option value="auto">auto</option>
+                  <option value="cpu">cpu</option>
+                  <option value="cuda">cuda</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Devices</span>
+                <input id="creator-devices" type="number" value="1" min="1" />
+              </label>
+              <label class="field">
+                <span>Memory GiB</span>
+                <input id="creator-memory" type="number" min="0" step="0.1" placeholder="automatic" />
+              </label>
+              <label class="field">
+                <span>Artifact root</span>
+                <input id="creator-artifacts" value="runs" />
+              </label>
+            </div>
+          </section>
+        </div>
+
+        <div id="creator-error" class="form-error" role="alert"></div>
+        <div class="dialog-actions">
+          <button id="cancel-config-button" class="button ghost" type="button">Cancel</button>
+          <button class="button primary" type="submit">Build and open</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="model-graph-dialog" class="model-graph-dialog">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">PYTORCH DAG</span>
+          <h2>Design model architecture</h2>
+        </div>
+        <button id="close-model-graph" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="model-graph-toolbar">
+        <label class="field graph-input-names">
+          <span>Model inputs</span>
+          <input id="graph-input-names" value="input" placeholder="input, context" />
+        </label>
+        <span id="graph-status" class="graph-status">Add a module to begin.</span>
+        <button id="validate-model-graph" class="button compact ghost" type="button">
+          Validate graph
+        </button>
+      </div>
+      <div class="model-graph-grid">
+        <aside class="graph-palette">
+          <label class="search-box">
+            <span class="sr-only">Filter PyTorch modules</span>
+            <input id="graph-palette-filter" type="search" placeholder="Filter modules…" />
+          </label>
+          <div id="graph-palette-list" class="graph-palette-list"></div>
+        </aside>
+        <section class="graph-canvas-shell">
+          <div class="graph-hint">
+            Drag nodes to arrange them. Click an output port, then an input port, to connect.
+          </div>
+          <div id="graph-canvas-scroll" class="graph-canvas-scroll">
+            <div id="graph-canvas" class="graph-canvas">
+              <svg id="graph-edges" class="graph-edges" aria-hidden="true"></svg>
+              <div id="graph-nodes" class="graph-nodes"></div>
+            </div>
+          </div>
+        </section>
+        <aside class="graph-inspector">
+          <div class="section-heading">
+            <h3>Node inspector</h3>
+            <span id="graph-selection-kind">nothing selected</span>
+          </div>
+          <div id="graph-inspector-content" class="graph-inspector-content">
+            Select a module node to edit its parameters and inputs.
+          </div>
+        </aside>
+      </div>
+      <div id="graph-error" class="form-error" role="alert"></div>
+      <div class="dialog-actions">
+        <button id="cancel-model-graph" class="button ghost" type="button">Cancel</button>
+        <button id="apply-model-graph" class="button primary" type="button">
+          Apply architecture
+        </button>
+      </div>
+    </dialog>
+
+    <dialog id="inspect-dialog" class="inspect-dialog">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">COMPOSED CONFIG</span>
+          <h2>Inspect experiment</h2>
+        </div>
+        <button id="close-inspect-dialog" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="inspect-controls">
+        <label class="field wide">
+          <span>Config</span>
+          <input id="inspect-path" readonly />
+        </label>
+        <label class="field wide">
+          <span>Overrides (one dotted.path=value per line)</span>
+          <textarea id="inspect-overrides" rows="4" placeholder="experiment.seeds=[0,1]"></textarea>
+        </label>
+        <label class="checkbox-field inspect-checkbox">
+          <input id="inspect-manifests" type="checkbox" checked />
+          <span>Include full run manifests</span>
+        </label>
+        <button id="run-inspection" class="button primary" type="button">Compose and inspect</button>
+      </div>
+      <div class="inspect-results">
+        <section>
+          <div class="section-heading"><h3>Rendered YAML</h3><span>after overrides</span></div>
+          <pre id="inspect-rendered">Run the inspector to render the composed configuration.</pre>
+        </section>
+        <section>
+          <div class="section-heading"><h3>Plan</h3><span>IDs, trials and assignments</span></div>
+          <pre id="inspect-plan">No compiled plan yet.</pre>
+        </section>
+      </div>
+      <div id="inspect-error" class="form-error" role="alert"></div>
+    </dialog>
+
+    <dialog id="experiments-dialog" class="experiments-dialog">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">DETACHED SCHEDULER</span>
+          <h2>Launch and monitor experiments</h2>
+        </div>
+        <button id="close-experiments-dialog" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+
+      <div id="remote-session-note" class="remote-session-note">
+        <span class="status-dot"></span>
+        <span>Localhost-only session. Launches persist if this browser disconnects.</span>
+      </div>
+
+      <div class="experiments-grid">
+        <section class="launch-builder">
+          <div class="section-heading">
+            <h3>New launch</h3>
+            <span>validated config only</span>
+          </div>
+          <form id="launch-form">
+            <label class="field wide">
+              <span>Experiment config</span>
+              <select id="launch-config" required></select>
+            </label>
+            <label class="field wide">
+              <span>Launcher policy</span>
+              <select id="launch-policy"></select>
+            </label>
+            <label class="field wide">
+              <span>Config overrides (one dotted.path=value per line)</span>
+              <textarea id="launch-overrides" rows="3" placeholder="experiment.seeds=[0,1]"></textarea>
+            </label>
+            <label class="field wide">
+              <span>Launcher overrides</span>
+              <textarea id="launch-policy-overrides" rows="3" placeholder="params.max_parallel=2"></textarea>
+            </label>
+            <div class="field-grid">
+              <label class="field">
+                <span>Artifact root</span>
+                <input id="launch-artifacts" value="runs" required />
+              </label>
+              <label class="checkbox-field">
+                <input id="launch-resume" type="checkbox" checked />
+                <span>Resume compatible runs</span>
+              </label>
+            </div>
+            <div id="launch-plan-preview" class="launch-plan-preview">
+              Select a saved YAML experiment to compile its plan.
+            </div>
+            <div id="launch-error" class="form-error" role="alert"></div>
+            <button id="launch-submit" class="button primary launch-submit" type="submit">
+              Start detached launch
+            </button>
+          </form>
+        </section>
+
+        <section class="launch-monitor">
+          <div class="section-heading">
+            <h3>Launch history</h3>
+            <button id="refresh-launches" class="button compact ghost" type="button">Refresh</button>
+          </div>
+          <div class="launch-monitor-grid">
+            <div id="launch-list" class="launch-list"></div>
+            <div id="launch-detail" class="launch-detail">
+              <div class="launch-detail-empty">Select a launch to inspect its runs and scheduler log.</div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="checkpoints-dialog" class="checkpoints-dialog">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">TRAINED MODELS</span>
+          <h2>Checkpoints and inference</h2>
+        </div>
+        <button id="close-checkpoints-dialog" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="checkpoint-toolbar">
+        <label class="field">
+          <span>Checkpoint catalog root</span>
+          <input id="checkpoint-root" value="runs" />
+        </label>
+        <button id="refresh-checkpoints" class="button ghost" type="button">Refresh</button>
+        <span id="checkpoint-summary" class="analytics-summary">Not scanned</span>
+      </div>
+      <div class="checkpoints-grid">
+        <section class="checkpoint-catalog">
+          <div class="section-heading"><h3>Managed checkpoints</h3><span>best / last</span></div>
+          <div id="checkpoint-list" class="checkpoint-list"></div>
+        </section>
+        <section class="inference-builder">
+          <div class="section-heading"><h3>Inference run</h3><span>detached and resumable</span></div>
+          <form id="inference-form">
+            <label class="field wide">
+              <span>Checkpoint path</span>
+              <input id="inference-checkpoint" placeholder="runs/study/run/checkpoints/fit/best.pt" required />
+            </label>
+            <div id="checkpoint-detail" class="checkpoint-detail">
+              Select a managed checkpoint or enter a workspace-relative path.
+            </div>
+            <label class="field wide">
+              <span>Explicit config (required for external checkpoints)</span>
+              <select id="inference-config"></select>
+            </label>
+            <div class="field-grid">
+              <label class="field">
+                <span>Splits</span>
+                <input id="inference-splits" value="test" placeholder="test, ood" />
+              </label>
+              <label class="field">
+                <span>Device</span>
+                <select id="inference-device">
+                  <option value="auto">auto</option>
+                  <option value="cpu">cpu</option>
+                  <option value="cuda">cuda</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Output artifact root</span>
+                <input id="inference-artifacts" value="runs" />
+              </label>
+              <label class="checkbox-field">
+                <input id="inference-predict" type="checkbox" />
+                <span>Save batch-wise predictions</span>
+              </label>
+            </div>
+            <label class="field wide">
+              <span>Config overrides</span>
+              <textarea id="inference-overrides" rows="3" placeholder="components.data.params.batch_size=16"></textarea>
+            </label>
+            <label class="field wide">
+              <span>Launcher policy</span>
+              <select id="inference-policy"></select>
+            </label>
+            <label class="field wide">
+              <span>Launcher overrides</span>
+              <textarea id="inference-policy-overrides" rows="2" placeholder="params.max_parallel=1"></textarea>
+            </label>
+            <pre id="inference-preview" class="launch-plan-preview">Select a checkpoint to validate compatibility.</pre>
+            <div id="checkpoint-error" class="form-error" role="alert"></div>
+            <div class="dialog-actions inference-actions">
+              <button id="preview-inference" class="button ghost" type="button">Preview</button>
+              <button id="start-inference" class="button primary" type="submit">Start inference</button>
+            </div>
+          </form>
+        </section>
+      </div>
+    </dialog>
+
+    <dialog id="analytics-dialog" class="analytics-dialog">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">RESULTS WORKBENCH</span>
+          <h2>Evaluate, compare and publish</h2>
+        </div>
+        <button id="close-analytics-dialog" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+
+      <div class="analytics-toolbar">
+        <label class="field">
+          <span>Artifact root</span>
+          <input id="analytics-root" value="runs" />
+        </label>
+        <button id="refresh-analytics" class="button primary" type="button">Refresh data</button>
+        <button id="rebuild-analytics" class="button ghost" type="button">Rebuild index</button>
+        <span id="analytics-summary" class="analytics-summary">Not indexed</span>
+      </div>
+
+      <div class="analytics-tabs" role="tablist" aria-label="Result sections">
+        <button id="analytics-overview-tab" class="analytics-tab active" type="button">Run explorer</button>
+        <button id="analytics-evaluation-tab" class="analytics-tab" type="button">Evaluation</button>
+        <button id="analytics-builders-tab" class="analytics-tab" type="button">Figures & tables</button>
+      </div>
+
+      <details class="analytics-filter-drawer">
+        <summary>
+          <span>Dataset filters</span>
+          <span id="active-filter-count" class="filter-count">all indexed data</span>
+        </summary>
+        <div class="analytics-filter-grid">
+          <label class="field"><span>Studies</span><select id="filter-studies" multiple></select></label>
+          <label class="field"><span>Trials</span><select id="filter-trials" multiple></select></label>
+          <label class="field"><span>Models</span><select id="filter-models" multiple></select></label>
+          <label class="field"><span>Datasets</span><select id="filter-datasets" multiple></select></label>
+          <label class="field"><span>Splits</span><select id="filter-splits" multiple></select></label>
+          <label class="field"><span>Run states</span><select id="filter-states" multiple></select></label>
+          <div class="filter-help">
+            <span>Filters apply to evaluation, charts and tables. Leave a facet empty to include all values.</span>
+            <button id="clear-analytics-filters" class="button ghost" type="button">Clear filters</button>
+          </div>
+        </div>
+      </details>
+
+      <section id="analytics-overview-panel" class="analytics-panel analytics-overview">
+        <div class="overview-controls">
+          <label class="field"><span>Stage</span><select id="overview-stage"><option value="">all</option></select></label>
+          <label class="field"><span>Final metric</span><select id="overview-metric"><option value="">all</option></select></label>
+          <label class="field"><span>Resource trial IDs</span><input id="overview-trials" placeholder="optional, comma-separated" /></label>
+          <label class="field"><span>Run limit</span><input id="overview-limit" type="number" min="1" max="2000" value="500" /></label>
+          <button id="refresh-overview" class="button primary" type="button">Load runs</button>
+        </div>
+        <div id="run-catalog-summary" class="overview-summary">No run catalog loaded.</div>
+        <div class="overview-grid">
+          <section class="overview-card overview-card-runs">
+            <div class="section-heading"><h3>Runs</h3><span id="overview-runs-count">0</span></div>
+            <div id="overview-runs" class="data-table-wrap"></div>
+          </section>
+          <section class="overview-card">
+            <div class="section-heading"><h3>Final metrics</h3><span>mean ± std</span></div>
+            <div id="overview-summary" class="data-table-wrap"></div>
+          </section>
+          <section class="overview-card">
+            <div class="section-heading"><h3>Compute</h3><span>per trial</span></div>
+            <div id="overview-resources" class="data-table-wrap"></div>
+          </section>
+        </div>
+      </section>
+
+      <section id="analytics-evaluation-panel" class="analytics-panel evaluation-panel" hidden>
+        <div class="evaluation-layout">
+          <aside class="evaluation-protocol">
+            <div class="section-heading"><h3>Selection protocol</h3><span>per run</span></div>
+            <p>Choose the best validation step, read the target metric at that same step, then aggregate eligible seeds.</p>
+            <div class="evaluation-fields">
+              <label class="field"><span>Selection metric</span><select id="evaluation-selection-metric"></select></label>
+              <label class="field"><span>Target metric</span><select id="evaluation-target-metric"></select></label>
+              <label class="field"><span>Stage</span><select id="evaluation-stage"></select></label>
+              <div class="field-grid">
+                <label class="field"><span>Selection split</span><select id="evaluation-selection-split"></select></label>
+                <label class="field"><span>Target split</span><select id="evaluation-target-split"></select></label>
+              </div>
+              <div class="field-grid">
+                <label class="field"><span>Direction</span><select id="evaluation-direction"><option value="minimize">minimize</option><option value="maximize">maximize</option></select></label>
+                <label class="field"><span>Target step</span><select id="evaluation-alignment"><option value="same_step">same selected step</option><option value="latest">latest available</option></select></label>
+              </div>
+              <div class="field-grid">
+                <label class="field"><span>Group first</span><select id="evaluation-group-primary"><option>dataset</option><option>model</option><option>trial_id</option><option>study_id</option><option>stage</option><option>split</option></select></label>
+                <label class="field"><span>Then by</span><select id="evaluation-group-secondary"><option value="">none</option><option selected>model</option><option>dataset</option><option>trial_id</option><option>study_id</option><option>stage</option><option>split</option></select></label>
+              </div>
+              <label class="field"><span>Maximum selected runs</span><input id="evaluation-max-runs" type="number" min="1" max="10000" value="2000" /></label>
+              <div class="field-grid">
+                <label class="field"><span>Table precision</span><input id="evaluation-precision" type="number" min="1" max="10" value="4" /></label>
+                <label class="field"><span>Target ranking</span><select id="evaluation-table-direction"><option>minimize</option><option>maximize</option><option>none</option></select></label>
+              </div>
+              <label class="field"><span>Report name</span><input id="evaluation-name" value="validation-selected-results" /></label>
+              <label class="field"><span>LaTeX label</span><input id="evaluation-label" value="tab:validation-selected" /></label>
+              <label class="field"><span>Caption</span><input id="evaluation-caption" placeholder="Validation-selected test results" /></label>
+              <label class="field"><span>Export directory</span><input id="evaluation-output" placeholder="reports/validation-selected-results" /></label>
+              <div class="evaluation-actions">
+                <button id="run-evaluation" class="button primary" type="button">Evaluate runs</button>
+                <button id="copy-evaluation-latex" class="button ghost" type="button">Copy LaTeX</button>
+                <button id="export-evaluation" class="button ghost" type="button">Export bundle</button>
+              </div>
+            </div>
+          </aside>
+          <div class="evaluation-results">
+            <div class="evaluation-kpis">
+              <article><span>Selected</span><strong id="evaluation-selected-count">—</strong></article>
+              <article><span>Eligible</span><strong id="evaluation-eligible-count">—</strong></article>
+              <article><span>Excluded</span><strong id="evaluation-excluded-count">—</strong></article>
+              <article><span>Groups</span><strong id="evaluation-group-count">—</strong></article>
+            </div>
+            <section class="evaluation-card">
+              <div class="section-heading"><h3>Aggregated results</h3><span id="evaluation-provenance">not evaluated</span></div>
+              <div id="evaluation-groups" class="data-table-wrap"></div>
+            </section>
+            <section class="evaluation-card evaluation-runs-card">
+              <div class="section-heading"><h3>Run-level selection</h3><span>audit trail</span></div>
+              <div id="evaluation-runs" class="data-table-wrap"></div>
+            </section>
+            <details class="latex-source evaluation-latex-source">
+              <summary>Validation-selected LaTeX table</summary>
+              <pre id="evaluation-latex" class="table-preview"></pre>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      <section id="analytics-builders-panel" class="analytics-panel" hidden>
+        <div class="report-spec-toolbar">
+          <label class="field"><span>Saved YAML spec</span><select id="report-spec-path"></select></label>
+          <label class="field"><span>Kind</span><select id="report-spec-kind"><option value="chart">chart</option><option value="table">table</option></select></label>
+          <button id="load-report-spec" class="button ghost" type="button">Load spec</button>
+          <span>All previews use the active dataset filters above.</span>
+        </div>
+        <div class="analytics-grid">
+          <section class="analytics-builder">
+            <div class="section-heading"><h3>Figure</h3><span>bounded server-side aggregation</span></div>
+            <div class="field-grid analytics-fields">
+              <label class="field"><span>Name</span><input id="chart-name" value="learning-curves" /></label>
+              <label class="field"><span>Metric</span><select id="chart-metric"></select></label>
+              <label class="field"><span>Stage</span><select id="chart-stage"></select></label>
+              <label class="field"><span>Event kind</span><select id="chart-kind"><option value="progress">progress</option><option value="final">final</option></select></label>
+              <label class="field"><span>Figure type</span><select id="chart-type"><option value="line">line / learning curve</option><option value="bar">bar / comparison</option></select></label>
+              <label class="field"><span>Series</span><select id="chart-group"><option>model</option><option>study_id</option><option>trial_id</option><option>run_id</option><option>dataset</option><option>split</option><option>seed</option><option>stage</option><option>metric</option></select></label>
+              <label class="field"><span>Aggregation</span><select id="chart-aggregate"><option>mean</option><option>min</option><option>max</option></select></label>
+              <label class="field"><span>Uncertainty</span><select id="chart-uncertainty"><option>std</option><option>sem</option><option>range</option><option>none</option></select></label>
+              <label class="field"><span>Y scale</span><select id="chart-scale"><option>linear</option><option>log</option></select></label>
+              <label class="field"><span>Max points/series</span><input id="chart-points" type="number" min="20" max="10000" value="1000" /></label>
+              <label class="field"><span>Max series</span><input id="chart-series" type="number" min="1" max="500" value="50" /></label>
+              <label class="field wide"><span>Title</span><input id="chart-title" placeholder="Optional" /></label>
+              <label class="field"><span>Export formats</span><input id="chart-formats" value="svg, pdf" placeholder="svg, pdf, png" /></label>
+              <label class="field wide"><span>Export directory</span><input id="chart-output" placeholder="reports/learning-curves" /></label>
+            </div>
+            <div class="analytics-actions">
+              <button id="preview-chart" class="button primary" type="button">Render preview</button>
+              <button id="export-chart" class="button ghost" type="button">Export reproducible bundle</button>
+            </div>
+            <div id="chart-preview" class="chart-preview"><span>Select a metric and render.</span></div>
+          </section>
+
+          <section class="analytics-builder">
+            <div class="section-heading"><h3>Publication table</h3><span>visual + LaTeX</span></div>
+            <div class="field-grid analytics-fields">
+              <label class="field"><span>Name</span><input id="table-name" value="benchmark-table" /></label>
+              <label class="field"><span>Metric</span><select id="table-metric"></select></label>
+              <label class="field"><span>Stage</span><select id="table-stage"></select></label>
+              <label class="field"><span>Rows</span><select id="table-row"><option>dataset</option><option>study_id</option><option>stage</option><option>metric</option><option>model</option><option>trial_id</option><option>split</option></select></label>
+              <label class="field"><span>Columns</span><select id="table-column"><option>model</option><option>trial_id</option><option>study_id</option><option>dataset</option><option>split</option><option>stage</option><option>metric</option></select></label>
+              <label class="field"><span>Cell value</span><select id="table-aggregate"><option value="mean_std">mean ± std</option><option value="mean">mean</option><option value="min">minimum</option><option value="max">maximum</option></select></label>
+              <label class="field"><span>Ranking</span><select id="table-direction"><option>minimize</option><option>maximize</option><option>none</option></select></label>
+              <label class="field"><span>Precision</span><input id="table-precision" type="number" min="1" max="10" value="4" /></label>
+              <label class="field"><span>Max rows</span><input id="table-rows" type="number" min="1" max="1000" value="100" /></label>
+              <label class="field"><span>Max columns</span><input id="table-columns" type="number" min="1" max="500" value="50" /></label>
+              <label class="field"><span>Label</span><input id="table-label" value="tab:benchmark" /></label>
+              <label class="field wide"><span>Caption</span><input id="table-caption" placeholder="Benchmark results" /></label>
+              <label class="field wide"><span>Export directory</span><input id="table-output" placeholder="reports/benchmark-table" /></label>
+            </div>
+            <div class="analytics-actions">
+              <button id="preview-table" class="button primary" type="button">Build table</button>
+              <button id="copy-table-latex" class="button ghost" type="button">Copy LaTeX</button>
+              <button id="export-table" class="button ghost" type="button">Export reproducible bundle</button>
+            </div>
+            <div id="table-visual-preview" class="table-visual-preview"><span>Select a final metric and build.</span></div>
+            <details class="latex-source">
+              <summary>LaTeX source</summary>
+              <pre id="table-preview" class="table-preview"></pre>
+            </details>
+          </section>
+        </div>
+      </section>
+      <div id="analytics-error" class="form-error" role="alert"></div>
+    </dialog>
+
+    <dialog id="project-dialog" class="project-dialog">
+      <div class="dialog-heading">
+        <div>
+          <span class="eyebrow">ENVIRONMENT</span>
+          <h2>Project diagnostics</h2>
+        </div>
+        <button id="close-project-dialog" class="icon-button" type="button" aria-label="Close">×</button>
+      </div>
+      <div class="project-content">
+        <div id="project-diagnostics" class="diagnostics-grid"></div>
+        <section class="project-init">
+          <div>
+            <h3>Initialize ResearchAssistant project</h3>
+            <p>Create a smoke config and local plugin scaffold. Existing files are never overwritten.</p>
+          </div>
+          <button id="initialize-project" class="button ghost" type="button">Initialize</button>
+        </section>
+        <pre id="project-result" class="project-result">Diagnostics loaded from this server process.</pre>
+      </div>
+      <div id="project-error" class="form-error" role="alert"></div>
+    </dialog>
+
+  </body>
+</html>

@@ -1,0 +1,44 @@
+version: 1
+
+experiment:
+  name: torch-regression
+  tags: [example]
+
+plugins:
+  - ra_torch_example.plugin
+
+matrix:
+  seed: [0, 1, 2]
+
+components:
+  model:
+    type: torch_example/mlp
+    params:
+      width: 16
+  data:
+    type: torch_example/regression
+    params:
+      batch_size: 32
+  recipe:
+    type: torch_example/mse
+    params:
+      learning_rate: 0.02
+
+stages:
+  - name: fit
+    type: torch/fit
+    params:
+      epochs: 20
+      monitor: val/loss
+
+  - name: test
+    type: torch/evaluate
+    needs: [fit]
+    params:
+      splits: [test]
+
+resources:
+  accelerator: auto
+
+artifacts:
+  root: runs

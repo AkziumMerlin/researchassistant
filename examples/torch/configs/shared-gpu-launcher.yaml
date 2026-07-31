@@ -1,0 +1,18 @@
+version: 1
+type: core/local-subprocess
+
+params:
+  max_parallel: 4
+  poll_interval_seconds: 2
+  sample_interval_seconds: 2
+  fail_fast: false
+
+  gpu:
+    devices: [0, 1, 2, 3]
+    min_free_memory_gb: 6
+    reserve_memory_gb: 1
+    default_required_memory_gb: 4
+    max_utilization_percent: 70
+    foreign_processes: allow
+    max_our_jobs_per_gpu: 1
+    historical_memory_safety_factor: 1.2
