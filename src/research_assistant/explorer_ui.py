@@ -6,31 +6,21 @@ from pathlib import Path
 from research_assistant.errors import ResearchAssistantError
 
 _INSTALLED = False
-_PATCH_SUFFIX = "-explorer4"
+_PATCH_SUFFIX = "-explorer5"
 _ORIGINAL_MAIN_SCRIPT_PATTERN = re.compile(
     r'(?P<prefix>src="/assets/(?P<name>index-[^"/?]+)\.js)(?P<suffix>\")'
 )
 _PATCHED_MAIN_BUNDLE_PATTERN = re.compile(
     rf"/assets/(?P<name>index-[^/?]+){_PATCH_SUFFIX}\.js$"
 )
-_BUNDLE_PRELUDE = r'''
-const __raOriginalFromEntries = Object.fromEntries;
-Object.fromEntries = function researchAssistantFromEntries(iterable) {
-  const entries = Array.from(iterable);
-  const workspaceRegistry = entries.some(
-    (entry) => Array.isArray(entry) && entry[0] === "workspace-name",
-  );
-  if (
-    workspaceRegistry &&
-    !entries.some((entry) => Array.isArray(entry) && entry[0] === "connection-status")
-  ) {
-    entries.push(["connection-status", document.getElementById("connection-status")]);
-  }
-  const result = __raOriginalFromEntries(entries);
-  if (workspaceRegistry) Object.fromEntries = __raOriginalFromEntries;
-  return result;
-};
-'''.strip()
+_CONNECTION_STATUS_REPLACE_PATTERN = re.compile(
+    r"(?:[A-Za-z_$][A-Za-z0-9_$]*)"
+    r"\s*\[\s*(?P<quote>['\"])connection-status(?P=quote)\s*\]"
+    r"\s*\.replaceChildren\(\)"
+)
+_DIRECT_CONNECTION_STATUS_REPLACE = (
+    'document.getElementById("connection-status")?.replaceChildren()'
+)
 
 
 def _virtualize_main_script(html: str) -> str:
@@ -41,6 +31,25 @@ def _virtualize_main_script(html: str) -> str:
         )
 
     return _ORIGINAL_MAIN_SCRIPT_PATTERN.sub(replacement, html, count=1)
+
+
+def _patch_explorer_bundle(source: str) -> tuple[str, bool]:
+    if _DIRECT_CONNECTION_STATUS_REPLACE in source:
+        return source, False
+
+    matches = list(_CONNECTION_STATUS_REPLACE_PATTERN.finditer(source))
+    if len(matches) != 1:
+        raise ResearchAssistantError(
+            "Could not uniquely locate the Explorer connection-status update "
+            f"in the frontend bundle; found {len(matches)} matches"
+        )
+
+    patched = _CONNECTION_STATUS_REPLACE_PATTERN.sub(
+        _DIRECT_CONNECTION_STATUS_REPLACE,
+        source,
+        count=1,
+    )
+    return patched, True
 
 
 def _register(app, server_module) -> None:
@@ -68,12 +77,15 @@ def _register(app, server_module) -> None:
                 asset_path = static_root / "assets" / f'{match.group("name")}.js'
                 if asset_path.is_file():
                     source = asset_path.read_text(encoding="utf-8")
+                    patched_source, applied = _patch_explorer_bundle(source)
                     response = Response(
-                        f"{_BUNDLE_PRELUDE}\n{source}",
+                        patched_source,
                         media_type="application/javascript",
                     )
                     response.headers["Cache-Control"] = "no-store"
-                    response.headers["X-ResearchAssistant-Explorer-Patch"] = "applied"
+                    response.headers["X-ResearchAssistant-Explorer-Patch"] = (
+                        "applied" if applied else "not-needed"
+                    )
                     return response
 
         if request.method != "GET" or request.url.path != "/":
