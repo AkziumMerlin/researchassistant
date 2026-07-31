@@ -21,18 +21,6 @@ export default defineConfig({
           map: null,
         };
       },
-      transformIndexHtml: {
-        order: "pre",
-        handler() {
-          return [
-            {
-              tag: "script",
-              attrs: { src: "/api/extensions/explorer-bootstrap.js" },
-              injectTo: "head-prepend",
-            },
-          ];
-        },
-      },
     },
   ],
   build: {
