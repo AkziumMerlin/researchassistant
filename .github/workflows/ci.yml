@@ -5,7 +5,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -47,22 +47,6 @@ jobs:
           python-version: "3.12"
       - run: npm ci --prefix ui/frontend
       - run: npm run build --prefix ui/frontend
-      - name: Upload generated UI assets
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-static
-          path: src/research_assistant/ui/static
-          include-hidden-files: true
-      - name: Synchronize generated UI assets on development branch
-        if: github.event_name == 'push' && github.ref == 'refs/heads/codex/mvp-core'
-        run: |
-          if test -n "$(git status --porcelain --untracked-files=all -- src/research_assistant/ui/static)"; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -A -- src/research_assistant/ui/static
-            git commit -m "build: synchronize generated UI assets"
-            git push origin HEAD:codex/mvp-core
-          fi
       - name: Verify generated UI assets are committed
         run: |
           git status --short --untracked-files=all -- src/research_assistant/ui/static
