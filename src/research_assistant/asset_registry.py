@@ -174,7 +174,7 @@ class AssetRegistry:
             raise AssetRegistryError(f"asset escapes workspace: {source}")
         digest, object_kind, size = _digest(source)
         object_path = self._ingest_object(source, digest, object_kind)
-        identity = f"{kind}:{run_id}:{stage}:{name}:{digest}".encode("utf-8")
+        identity = f"{kind}:{run_id}:{stage}:{name}:{digest}".encode()
         asset_id = hashlib.sha256(identity).hexdigest()[:32]
         relative_source = source.relative_to(self.workspace).as_posix()
         relative_object = object_path.relative_to(self.workspace).as_posix()

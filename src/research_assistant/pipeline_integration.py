@@ -22,7 +22,7 @@ def install() -> None:
     execution.execute_run = execute_run_cached
     cli_module = sys.modules.get("research_assistant.cli")
     if cli_module is not None:
-        setattr(cli_module, "execute_run", execute_run_cached)
+        cli_module.execute_run = execute_run_cached
 
     LocalSubprocessLauncher.launch = launch_resilient  # type: ignore[method-assign]
 
