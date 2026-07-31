@@ -26,7 +26,9 @@ export default defineConfig({
   ],
   build: {
     outDir: resolve(import.meta.dirname, "../../src/research_assistant/ui/static"),
-    emptyOutDir: true,
+    // Runtime extension assets in the packaged static tree are maintained outside
+    // Vite's module graph. Preserve them while rebuilding the generated core.
+    emptyOutDir: false,
     sourcemap: false,
     target: "es2022",
     // Monaco's internal ESM graph is cyclic. Keep its core in the entry chunk;
