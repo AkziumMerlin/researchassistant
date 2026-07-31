@@ -3,10 +3,16 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from pydantic import BaseModel, ConfigDict
+
 from research_assistant.errors import ResearchAssistantError
+from research_assistant.integrations.parameterized_torch_graph import (
+    ParameterizedTorchGraphParams,
+    validate_parameterized_graph,
+)
 
 _INSTALLED = False
-_PATCH_VERSION = 7
+_PATCH_VERSION = 8
 _PATCH_SUFFIX = f"-explorer{_PATCH_VERSION}"
 _ORIGINAL_MAIN_SCRIPT_PATTERN = re.compile(
     r'(?P<prefix>src="/assets/(?P<name>index-[^"/?]+)\.js)(?P<suffix>\")'
@@ -42,6 +48,12 @@ return true;
 """
 
 
+class ParameterizedGraphValidateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    params: ParameterizedTorchGraphParams
+
+
 def _virtualize_main_script(html: str) -> str:
     def replacement(match: re.Match[str]) -> str:
         return f'{match.group("prefix")[:-3]}{_PATCH_SUFFIX}.js{match.group("suffix")}'
@@ -67,6 +79,22 @@ def _patch_explorer_bundle(source: str) -> tuple[str, bool]:
     return f"{_EXPLORER_REGISTRY_PRELUDE}{source}", True
 
 
+def _inject_extension_scripts(html: str) -> str:
+    scripts = (
+        "/api/extensions/jobs.js",
+        "/api/extensions/pipeline.js",
+        "/api/extensions/research.js",
+        "/api/extensions/architectures.js",
+    )
+    for source in scripts:
+        if source not in html:
+            html = html.replace(
+                "</head>",
+                f'  <script type="module" src="{source}"></script>\n  </head>',
+            )
+    return html
+
+
 def _register(app, server_module) -> None:
     try:
         from fastapi import Request
@@ -76,11 +104,7 @@ def _register(app, server_module) -> None:
 
     static_root = Path(server_module.__file__).with_name("static")
     index_path = static_root / "index.html"
-    extension_scripts = (
-        '<script type="module" src="/api/extensions/jobs.js"></script>\n'
-        '<script type="module" src="/api/extensions/pipeline.js"></script>\n'
-        '<script type="module" src="/api/extensions/research.js"></script>'
-    )
+    architecture_script_path = static_root / "architecture-extension.js"
 
     @app.middleware("http")
     async def explorer_assets(request: Request, call_next):
@@ -103,9 +127,7 @@ def _register(app, server_module) -> None:
             return await call_next(request)
 
         html = _virtualize_main_script(index_path.read_text(encoding="utf-8"))
-        if "/api/extensions/research.js" not in html:
-            html = html.replace("</head>", f"  {extension_scripts}\n  </head>")
-
+        html = _inject_extension_scripts(html)
         response = HTMLResponse(html)
         response.headers["Cache-Control"] = "no-store"
         response.headers["X-ResearchAssistant-UI-Build"] = str(_PATCH_VERSION)
@@ -119,6 +141,56 @@ def _register(app, server_module) -> None:
         response.headers["X-Frame-Options"] = "DENY"
         return response
 
+    @app.get("/api/architectures")
+    def list_architectures():
+        architecture_root = (app.state.workspace.root / "architectures").resolve()
+        rows: list[dict[str, object]] = []
+        if (
+            architecture_root.is_dir()
+            and architecture_root.is_relative_to(app.state.workspace.root)
+        ):
+            for path in sorted(architecture_root.rglob("*.json")):
+                resolved = path.resolve()
+                if not resolved.is_file() or not resolved.is_relative_to(architecture_root):
+                    continue
+                rows.append(
+                    {
+                        "path": resolved.relative_to(app.state.workspace.root).as_posix(),
+                        "name": resolved.name,
+                        "kind": "file",
+                        "size": resolved.stat().st_size,
+                        "editable": True,
+                    }
+                )
+                if len(rows) >= 2000:
+                    break
+        response = JSONResponse({"architectures": rows, "truncated": len(rows) >= 2000})
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.get("/api/extensions/architectures.js")
+    def architectures_extension():
+        if not architecture_script_path.is_file():
+            raise ResearchAssistantError("the architecture UI extension is missing")
+        response = Response(
+            architecture_script_path.read_text(encoding="utf-8"),
+            media_type="application/javascript",
+        )
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["X-ResearchAssistant-UI-Build"] = str(_PATCH_VERSION)
+        return response
+
+    @app.post("/api/torch/parameterized-graph/validate")
+    def validate_parameterized_torch_graph(payload: ParameterizedGraphValidateRequest):
+        validate_parameterized_graph(payload.params, app.state.registry)
+        return {
+            "valid": True,
+            "nodes": len(payload.params.nodes),
+            "inputs": payload.params.input_names,
+            "outputs": payload.params.outputs,
+            "variables": len(payload.params.variables),
+        }
+
     @app.get("/api/ui-build")
     def ui_build():
         index_html = index_path.read_text(encoding="utf-8")
@@ -129,6 +201,7 @@ def _register(app, server_module) -> None:
                 "patch_marker": _EXPLORER_REGISTRY_PATCH_MARKER,
                 "source_asset": source_asset,
                 "served_asset": served_asset,
+                "architectures_extension": "/api/extensions/architectures.js",
                 "explorer_module": str(Path(__file__).resolve()),
                 "server_module": str(Path(server_module.__file__).resolve()),
                 "static_root": str(static_root.resolve()),

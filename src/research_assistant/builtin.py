@@ -5,6 +5,9 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from research_assistant.execution import StageContext, StageResult
+from research_assistant.integrations.parameterized_torch_graph import (
+    register as register_parameterized_torch_graph,
+)
 from research_assistant.integrations.torch import register as register_torch
 from research_assistant.launching import register as register_launcher
 from research_assistant.registry import Registry
@@ -51,4 +54,5 @@ def register(registry: Registry) -> None:
         provider="research-assistant",
     )
     register_torch(registry)
+    register_parameterized_torch_graph(registry)
     register_launcher(registry)
