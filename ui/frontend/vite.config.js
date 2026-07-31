@@ -1,11 +1,26 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 
+const workspaceElementNeedle = '    "workspace-name",\n    "file-count",';
+const workspaceElementReplacement =
+  '    "workspace-name",\n    "connection-status",\n    "file-count",';
+
 export default defineConfig({
   base: "/",
   plugins: [
     {
-      name: "explorer-bootstrap-compatibility",
+      name: "explorer-connection-status-registry",
+      enforce: "pre",
+      transform(code, id) {
+        if (!id.endsWith("/src/main.js")) return null;
+        if (!code.includes(workspaceElementNeedle)) {
+          throw new Error("Could not locate the frontend workspace element registry");
+        }
+        return {
+          code: code.replace(workspaceElementNeedle, workspaceElementReplacement),
+          map: null,
+        };
+      },
       transformIndexHtml: {
         order: "pre",
         handler() {

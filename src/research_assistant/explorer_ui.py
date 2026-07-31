@@ -1,10 +1,42 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from research_assistant.errors import ResearchAssistantError
 
 _INSTALLED = False
+_MAIN_BUNDLE_PATTERN = re.compile(r"/assets/index-[^/?]+\.js$")
+_ELEMENT_PAIR_PATTERN = re.compile(
+    r"(?P<workspace_quote>[\"'])workspace-name(?P=workspace_quote)\s*,\s*"
+    r"(?P<file_quote>[\"'])file-count(?P=file_quote)"
+)
+_MAIN_SCRIPT_PATTERN = re.compile(
+    r'(?P<prefix>src="/assets/index-[^"?]+\.js)(?:\?[^\"]*)?(?P<suffix>\")'
+)
+_CACHE_BUSTER = "explorer=4"
+
+
+def _patch_main_bundle(source: str) -> tuple[str, bool]:
+    def replacement(match: re.Match[str]) -> str:
+        workspace_quote = match.group("workspace_quote")
+        file_quote = match.group("file_quote")
+        return (
+            f"{workspace_quote}workspace-name{workspace_quote},"
+            f"{workspace_quote}connection-status{workspace_quote},"
+            f"{file_quote}file-count{file_quote}"
+        )
+
+    patched, count = _ELEMENT_PAIR_PATTERN.subn(replacement, source, count=1)
+    return patched, count == 1
+
+
+def _cache_bust_main_script(html: str) -> str:
+    return _MAIN_SCRIPT_PATTERN.sub(
+        rf"\g<prefix>?{_CACHE_BUSTER}\g<suffix>",
+        html,
+        count=1,
+    )
 
 
 def _register(app, server_module) -> None:
@@ -25,11 +57,24 @@ def _register(app, server_module) -> None:
     )
 
     @app.middleware("http")
-    async def explorer_root(request: Request, call_next):
+    async def explorer_assets(request: Request, call_next):
+        if request.method == "GET" and _MAIN_BUNDLE_PATTERN.fullmatch(request.url.path):
+            asset_path = static_root / request.url.path.removeprefix("/")
+            if asset_path.is_file():
+                source = asset_path.read_text(encoding="utf-8")
+                patched, applied = _patch_main_bundle(source)
+                response = Response(patched, media_type="application/javascript")
+                response.headers["Cache-Control"] = "no-store"
+                response.headers["X-ResearchAssistant-Explorer-Patch"] = (
+                    "applied" if applied else "not-needed"
+                )
+                return response
+
         if request.method != "GET" or request.url.path != "/":
             return await call_next(request)
 
         html = index_path.read_text(encoding="utf-8")
+        html = _cache_bust_main_script(html)
         if compatibility_script not in html:
             marker = '<script type="module"'
             html = html.replace(marker, f"{compatibility_script}\n    {marker}", 1)
@@ -37,6 +82,7 @@ def _register(app, server_module) -> None:
             html = html.replace("</head>", f"  {extension_scripts}\n  </head>")
 
         response = HTMLResponse(html)
+        response.headers["Cache-Control"] = "no-store"
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
             "worker-src 'self' blob:; img-src 'self' data: blob:; connect-src 'self'; "
@@ -49,10 +95,12 @@ def _register(app, server_module) -> None:
 
     @app.get("/api/extensions/explorer-bootstrap.js")
     def explorer_bootstrap_javascript():
-        return Response(
+        response = Response(
             script_path.read_text(encoding="utf-8"),
             media_type="application/javascript",
         )
+        response.headers["Cache-Control"] = "no-store"
+        return response
 
 
 def install() -> None:
