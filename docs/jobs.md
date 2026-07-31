@@ -26,5 +26,8 @@ preview. Common prediction, sample, target, residual, and error-map filenames re
 labels in the gallery.
 
 The browser adds a **Jobs+** workbench with the same start, cancel, recover, log, metric, and artifact
-operations. The existing launch API remains available for compatibility; both interfaces use the
-same persistent store.
+operations. Its **Live metrics** view monitors all active runs of a job in one bounded dashboard,
+with filters, saved views, incremental cursors, automatic chart refresh, status/ETA cards, and direct
+links to each run's logs and artifacts. See [live-metrics.md](live-metrics.md) for scaling and query
+semantics. The existing launch API remains available for compatibility; both interfaces use the same
+persistent store.

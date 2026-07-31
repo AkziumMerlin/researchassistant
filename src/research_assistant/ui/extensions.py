@@ -15,6 +15,7 @@ from research_assistant.analytics import MetricIndex, bounded_artifact_root
 from research_assistant.config import dump_config, parse_config
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.jobs import JobError, JobService, JobStartRequest
+from research_assistant.live_metrics import LiveMetricSpec, live_dashboard
 from research_assistant.planning import compile_plan
 from research_assistant.plugins import load_registry
 
@@ -25,6 +26,7 @@ class AdvancedExportRequest(BaseModel):
     spec: AdvancedChartSpec
     output_path: str = Field(min_length=1)
     formats: list[Literal["svg", "pdf", "png"]] = Field(default_factory=list)
+
 
 _INSTALLED = False
 
@@ -242,6 +244,93 @@ def _register_routes(app, server_module) -> None:
             since_sequence=since_sequence,
             limit=limit,
         )
+
+    @app.post("/api/jobs/{job_id}/live-metrics")
+    def job_live_metrics(job_id: str, payload: LiveMetricSpec) -> dict[str, Any]:
+        _job_dir, request = service._request(job_id)  # noqa: SLF001 - same persistent store
+        plan = request.get("plan") if isinstance(request.get("plan"), dict) else {}
+        run_ids = [str(run_id) for run_id in plan.get("run_ids", [])]
+        root = Path(str(request.get("artifact_root", ""))).resolve()
+        if root == workspace.root or not root.is_relative_to(workspace.root):
+            raise JobError("persisted artifact root escapes the workspace")
+        key = str(root)
+        index: MetricIndex | None = app.state.metric_indices.get(key)
+        if index is None:
+            index = MetricIndex(root)
+            app.state.metric_indices[key] = index
+        refresh = index.refresh()
+        dashboard = live_dashboard(index, allowed_run_ids=run_ids, spec=payload)
+        job_runs = {
+            str(row.get("run_id")): row
+            for row in service.detail(job_id).get("runs", [])
+            if isinstance(row, dict)
+        }
+        plan_details = {
+            str(row.get("run_id")): row
+            for row in plan.get("run_details", [])
+            if isinstance(row, dict)
+        }
+        for row in dashboard["runs"]:
+            live_run = job_runs.get(str(row["run_id"]), {})
+            row["worker_pid"] = live_run.get("worker_pid")
+            row["gpu"] = live_run.get("gpu")
+            if not row["resources"] and isinstance(live_run.get("resources"), dict):
+                row["resources"] = live_run["resources"]
+
+        existing = {str(row["run_id"]) for row in dashboard["runs"]}
+        active_states = {"pending", "queued", "scheduled", "starting", "running"}
+        selected_states = set(payload.states) or (active_states if payload.active_only else set())
+        for run_id in run_ids:
+            if run_id in existing:
+                continue
+            live_run = job_runs.get(run_id, {})
+            planned = plan_details.get(run_id, {})
+            state = str(live_run.get("state", "queued"))
+            trial_id = str(planned.get("trial_id", "unknown"))
+            assignments = planned.get("assignments")
+            assignments = assignments if isinstance(assignments, dict) else {}
+            if payload.run_ids and run_id not in payload.run_ids:
+                continue
+            if payload.trial_ids and trial_id not in payload.trial_ids:
+                continue
+            if selected_states and state not in selected_states:
+                continue
+            if payload.models or payload.datasets:
+                continue
+            if payload.search.strip():
+                search_document = json.dumps(
+                    {"run_id": run_id, "trial_id": trial_id, "assignments": assignments}
+                )
+                if payload.search.lower() not in search_document.lower():
+                    continue
+            dashboard["runs"].append(
+                {
+                    "run_id": run_id,
+                    "study_id": str(plan.get("study_id", "unknown")),
+                    "trial_id": trial_id,
+                    "seed": assignments.get("seed"),
+                    "state": state,
+                    "model": "unknown",
+                    "dataset": "unknown",
+                    "assignments": assignments,
+                    "updated_at": live_run.get("updated_at"),
+                    "step": None,
+                    "step_kind": None,
+                    "total_steps": None,
+                    "eta_seconds": None,
+                    "metrics": {},
+                    "resources": live_run.get("resources") or {},
+                    "worker_pid": live_run.get("worker_pid"),
+                    "gpu": live_run.get("gpu"),
+                }
+            )
+            dashboard["summary"]["runs"] += 1
+            state_counts = dashboard["summary"]["states"]
+            state_counts[state] = state_counts.get(state, 0) + 1
+        dashboard["runs"].sort(
+            key=lambda row: (str(row["state"]), str(row["trial_id"]), str(row["run_id"]))
+        )
+        return {"refresh": refresh, "dashboard": dashboard}
 
     @app.get("/api/jobs/{job_id}/artifacts")
     def job_artifacts(
