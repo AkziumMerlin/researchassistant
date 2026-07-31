@@ -76,12 +76,20 @@ def test_architecture_extension_and_advanced_validation_endpoint(tmp_path: Path)
     assert extension.headers["cache-control"] == "no-store"
     assert "researchAssistantArchitectureWorkbenchV2Loader" in extension.text
     assert "architecture-v2/part-" in extension.text
+    assert "length: 8" in extension.text
     assert "blob:" in index.headers["content-security-policy"]
     source = "".join(
         client.get(f"/api/extensions/architecture-v2/part-{index:02d}.txt").text
-        for index in range(7)
+        for index in range(8)
     )
     assert "researchAssistantArchitectureWorkbenchV2" in source
+    assert "researchAssistantUnifiedWorkbenchThemeV1" in source
+    assert "ra-unified-workbench-theme" in source
+    assert "ra-section-nav" in source
+    assert '["Jobs+", "Jobs"]' in source
+    assert '["Pipeline+", "Pipeline"]' in source
+    assert '["Research+", "Research"]' in source
+    assert "--ra-accent:#7ce5b2" in source
     assert "architectures-button" in source
     assert "typed pytorch architecture language" in source.lower()
     assert "Architecture controls" in source
