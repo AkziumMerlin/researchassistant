@@ -3,6 +3,23 @@ import { resolve } from "node:path";
 
 export default defineConfig({
   base: "/",
+  plugins: [
+    {
+      name: "explorer-bootstrap-compatibility",
+      transformIndexHtml: {
+        order: "pre",
+        handler() {
+          return [
+            {
+              tag: "script",
+              attrs: { src: "/assets/explorer-bootstrap.js" },
+              injectTo: "head-prepend",
+            },
+          ];
+        },
+      },
+    },
+  ],
   build: {
     outDir: resolve(import.meta.dirname, "../../src/research_assistant/ui/static"),
     emptyOutDir: true,
