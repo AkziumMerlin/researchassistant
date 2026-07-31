@@ -12,7 +12,7 @@ from research_assistant.integrations.parameterized_torch_graph import (
 )
 
 _INSTALLED = False
-_PATCH_VERSION = 8
+_PATCH_VERSION = 9
 _PATCH_SUFFIX = f"-explorer{_PATCH_VERSION}"
 _ORIGINAL_MAIN_SCRIPT_PATTERN = re.compile(
     r'(?P<prefix>src="/assets/(?P<name>index-[^"/?]+)\.js)(?P<suffix>\")'
@@ -183,12 +183,20 @@ def _register(app, server_module) -> None:
     @app.post("/api/torch/parameterized-graph/validate")
     def validate_parameterized_torch_graph(payload: ParameterizedGraphValidateRequest):
         validate_parameterized_graph(payload.params, app.state.registry)
+        subgraph_nodes = sum(
+            len(template.nodes) for template in payload.params.subgraphs.values()
+        )
         return {
             "valid": True,
-            "nodes": len(payload.params.nodes),
+            "nodes": len(payload.params.nodes) + subgraph_nodes,
+            "root_nodes": len(payload.params.nodes),
+            "subgraph_nodes": subgraph_nodes,
+            "subgraphs": len(payload.params.subgraphs),
             "inputs": payload.params.input_names,
             "outputs": payload.params.outputs,
             "variables": len(payload.params.variables),
+            "typed_variables": len(payload.params.variable_specs),
+            "language_version": 2,
         }
 
     @app.get("/api/ui-build")
@@ -202,6 +210,7 @@ def _register(app, server_module) -> None:
                 "source_asset": source_asset,
                 "served_asset": served_asset,
                 "architectures_extension": "/api/extensions/architectures.js",
+                "architecture_language_version": 2,
                 "explorer_module": str(Path(__file__).resolve()),
                 "server_module": str(Path(server_module.__file__).resolve()),
                 "static_root": str(static_root.resolve()),
