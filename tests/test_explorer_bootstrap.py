@@ -50,10 +50,11 @@ def test_explorer_bundle_is_patched_and_lists_files(tmp_path: Path) -> None:
 
     index = client.get("/")
     assert index.status_code == 200
-    main_match = re.search(
-        rf'type="module" crossorigin src="(?P<src>/assets/index-[^\"]+-explorer{_PATCH_VERSION}\.js)"',
-        index.text,
+    main_pattern = (
+        r'type="module" crossorigin src="'
+        rf'(?P<src>/assets/index-[^\"]+-explorer{_PATCH_VERSION}\.js)"'
     )
+    main_match = re.search(main_pattern, index.text)
     assert main_match is not None
     assert index.headers["cache-control"] == "no-store"
     assert index.headers["x-researchassistant-ui-build"] == str(_PATCH_VERSION)
