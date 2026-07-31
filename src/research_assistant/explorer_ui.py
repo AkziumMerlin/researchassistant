@@ -6,37 +6,41 @@ from pathlib import Path
 from research_assistant.errors import ResearchAssistantError
 
 _INSTALLED = False
-_MAIN_BUNDLE_PATTERN = re.compile(r"/assets/index-[^/?]+\.js$")
-_ELEMENT_PAIR_PATTERN = re.compile(
-    r"(?P<workspace_quote>[\"'])workspace-name(?P=workspace_quote)\s*,\s*"
-    r"(?P<file_quote>[\"'])file-count(?P=file_quote)"
+_PATCH_SUFFIX = "-explorer4"
+_ORIGINAL_MAIN_SCRIPT_PATTERN = re.compile(
+    r'(?P<prefix>src="/assets/(?P<name>index-[^"/?]+)\.js)(?P<suffix>\")'
 )
-_MAIN_SCRIPT_PATTERN = re.compile(
-    r'(?P<prefix>src="/assets/index-[^"?]+\.js)(?:\?[^\"]*)?(?P<suffix>\")'
+_PATCHED_MAIN_BUNDLE_PATTERN = re.compile(
+    rf"/assets/(?P<name>index-[^/?]+){_PATCH_SUFFIX}\.js$"
 )
-_CACHE_BUSTER = "explorer=4"
+_BUNDLE_PRELUDE = r'''
+const __raOriginalFromEntries = Object.fromEntries;
+Object.fromEntries = function researchAssistantFromEntries(iterable) {
+  const entries = Array.from(iterable);
+  const workspaceRegistry = entries.some(
+    (entry) => Array.isArray(entry) && entry[0] === "workspace-name",
+  );
+  if (
+    workspaceRegistry &&
+    !entries.some((entry) => Array.isArray(entry) && entry[0] === "connection-status")
+  ) {
+    entries.push(["connection-status", document.getElementById("connection-status")]);
+  }
+  const result = __raOriginalFromEntries(entries);
+  if (workspaceRegistry) Object.fromEntries = __raOriginalFromEntries;
+  return result;
+};
+'''.strip()
 
 
-def _patch_main_bundle(source: str) -> tuple[str, bool]:
+def _virtualize_main_script(html: str) -> str:
     def replacement(match: re.Match[str]) -> str:
-        workspace_quote = match.group("workspace_quote")
-        file_quote = match.group("file_quote")
         return (
-            f"{workspace_quote}workspace-name{workspace_quote},"
-            f"{workspace_quote}connection-status{workspace_quote},"
-            f"{file_quote}file-count{file_quote}"
+            f'{match.group("prefix")[:-3]}{_PATCH_SUFFIX}.js'
+            f'{match.group("suffix")}'
         )
 
-    patched, count = _ELEMENT_PAIR_PATTERN.subn(replacement, source, count=1)
-    return patched, count == 1
-
-
-def _cache_bust_main_script(html: str) -> str:
-    return _MAIN_SCRIPT_PATTERN.sub(
-        rf"\g<prefix>?{_CACHE_BUSTER}\g<suffix>",
-        html,
-        count=1,
-    )
+    return _ORIGINAL_MAIN_SCRIPT_PATTERN.sub(replacement, html, count=1)
 
 
 def _register(app, server_module) -> None:
@@ -58,23 +62,24 @@ def _register(app, server_module) -> None:
 
     @app.middleware("http")
     async def explorer_assets(request: Request, call_next):
-        if request.method == "GET" and _MAIN_BUNDLE_PATTERN.fullmatch(request.url.path):
-            asset_path = static_root / request.url.path.removeprefix("/")
-            if asset_path.is_file():
-                source = asset_path.read_text(encoding="utf-8")
-                patched, applied = _patch_main_bundle(source)
-                response = Response(patched, media_type="application/javascript")
-                response.headers["Cache-Control"] = "no-store"
-                response.headers["X-ResearchAssistant-Explorer-Patch"] = (
-                    "applied" if applied else "not-needed"
-                )
-                return response
+        if request.method == "GET":
+            match = _PATCHED_MAIN_BUNDLE_PATTERN.fullmatch(request.url.path)
+            if match is not None:
+                asset_path = static_root / "assets" / f'{match.group("name")}.js'
+                if asset_path.is_file():
+                    source = asset_path.read_text(encoding="utf-8")
+                    response = Response(
+                        f"{_BUNDLE_PRELUDE}\n{source}",
+                        media_type="application/javascript",
+                    )
+                    response.headers["Cache-Control"] = "no-store"
+                    response.headers["X-ResearchAssistant-Explorer-Patch"] = "applied"
+                    return response
 
         if request.method != "GET" or request.url.path != "/":
             return await call_next(request)
 
-        html = index_path.read_text(encoding="utf-8")
-        html = _cache_bust_main_script(html)
+        html = _virtualize_main_script(index_path.read_text(encoding="utf-8"))
         if compatibility_script not in html:
             marker = '<script type="module"'
             html = html.replace(marker, f"{compatibility_script}\n    {marker}", 1)
