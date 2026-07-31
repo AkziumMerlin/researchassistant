@@ -6,21 +6,29 @@ from pathlib import Path
 from research_assistant.errors import ResearchAssistantError
 
 _INSTALLED = False
-_PATCH_SUFFIX = "-explorer5"
+_PATCH_SUFFIX = "-explorer6"
 _ORIGINAL_MAIN_SCRIPT_PATTERN = re.compile(
     r'(?P<prefix>src="/assets/(?P<name>index-[^"/?]+)\.js)(?P<suffix>\")'
 )
 _PATCHED_MAIN_BUNDLE_PATTERN = re.compile(
     rf"/assets/(?P<name>index-[^/?]+){_PATCH_SUFFIX}\.js$"
 )
-_CONNECTION_STATUS_REPLACE_PATTERN = re.compile(
-    r"(?:[A-Za-z_$][A-Za-z0-9_$]*)"
-    r"\s*\[\s*(?P<quote>['\"])connection-status(?P=quote)\s*\]"
-    r"\s*\.replaceChildren\(\)"
-)
-_DIRECT_CONNECTION_STATUS_REPLACE = (
-    'document.getElementById("connection-status")?.replaceChildren()'
-)
+_EXPLORER_REGISTRY_PATCH_MARKER = "researchAssistantExplorerRegistryPatch"
+_EXPLORER_REGISTRY_PRELUDE = f"""const {_EXPLORER_REGISTRY_PATCH_MARKER}=(()=>{{
+const originalFromEntries=Object.fromEntries;
+Object.fromEntries=function researchAssistantFromEntries(iterable){{
+const result=originalFromEntries.call(Object,iterable);
+if(Object.prototype.hasOwnProperty.call(result,"workspace-name")){{
+if(!Object.prototype.hasOwnProperty.call(result,"connection-status")){{
+result["connection-status"]=document.getElementById("connection-status");
+}}
+Object.fromEntries=originalFromEntries;
+}}
+return result;
+}};
+return true;
+}})();
+"""
 
 
 def _virtualize_main_script(html: str) -> str:
@@ -34,22 +42,9 @@ def _virtualize_main_script(html: str) -> str:
 
 
 def _patch_explorer_bundle(source: str) -> tuple[str, bool]:
-    if _DIRECT_CONNECTION_STATUS_REPLACE in source:
+    if _EXPLORER_REGISTRY_PATCH_MARKER in source:
         return source, False
-
-    matches = list(_CONNECTION_STATUS_REPLACE_PATTERN.finditer(source))
-    if len(matches) != 1:
-        raise ResearchAssistantError(
-            "Could not uniquely locate the Explorer connection-status update "
-            f"in the frontend bundle; found {len(matches)} matches"
-        )
-
-    patched = _CONNECTION_STATUS_REPLACE_PATTERN.sub(
-        _DIRECT_CONNECTION_STATUS_REPLACE,
-        source,
-        count=1,
-    )
-    return patched, True
+    return f"{_EXPLORER_REGISTRY_PRELUDE}{source}", True
 
 
 def _register(app, server_module) -> None:
@@ -61,8 +56,6 @@ def _register(app, server_module) -> None:
 
     static_root = Path(server_module.__file__).with_name("static")
     index_path = static_root / "index.html"
-    script_path = static_root / "assets" / "explorer-bootstrap.js"
-    compatibility_script = '<script src="/api/extensions/explorer-bootstrap.js"></script>'
     extension_scripts = (
         '<script type="module" src="/api/extensions/jobs.js"></script>\n'
         '<script type="module" src="/api/extensions/pipeline.js"></script>\n'
@@ -92,9 +85,6 @@ def _register(app, server_module) -> None:
             return await call_next(request)
 
         html = _virtualize_main_script(index_path.read_text(encoding="utf-8"))
-        if compatibility_script not in html:
-            marker = '<script type="module"'
-            html = html.replace(marker, f"{compatibility_script}\n    {marker}", 1)
         if "/api/extensions/research.js" not in html:
             html = html.replace("</head>", f"  {extension_scripts}\n  </head>")
 
@@ -108,15 +98,6 @@ def _register(app, server_module) -> None:
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        return response
-
-    @app.get("/api/extensions/explorer-bootstrap.js")
-    def explorer_bootstrap_javascript():
-        response = Response(
-            script_path.read_text(encoding="utf-8"),
-            media_type="application/javascript",
-        )
-        response.headers["Cache-Control"] = "no-store"
         return response
 
 
