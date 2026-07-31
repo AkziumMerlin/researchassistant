@@ -10,9 +10,12 @@ from research_assistant.artifacts import atomic_write_json
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.launching import LocalSubprocessLauncher
 from research_assistant.models import ComponentRef, ExperimentConfig
+from research_assistant.pipeline_integration import install as install_pipeline
 from research_assistant.planning import Plan, compile_plan
 from research_assistant.plugins import load_registry
 from research_assistant.ui.launches import _utc_now
+
+install_pipeline()
 
 
 def _load_request(launch_dir: Path) -> dict[str, Any]:
@@ -41,6 +44,7 @@ def run(launch_dir: Path) -> int:
             "state": "running",
             "created_at": created_at,
             "started_at": started_at,
+            **({"adopted_at": request.get("adopted_at")} if request.get("adopted_at") else {}),
         },
     )
     try:
@@ -97,8 +101,10 @@ def run(launch_dir: Path) -> int:
                 "exit_code": exit_code,
                 "results": results,
                 **({"error": f"{len(failed)} run(s) failed"} if failed else {}),
+                **({"adopted_at": request.get("adopted_at")} if request.get("adopted_at") else {}),
             },
         )
+        (launch_dir / "adoption.lock").unlink(missing_ok=True)
         print(f"launch {launch_id}: {state}", flush=True)
         return exit_code
     except Exception as exc:
@@ -116,6 +122,7 @@ def run(launch_dir: Path) -> int:
                 "error": str(exc),
             },
         )
+        (launch_dir / "adoption.lock").unlink(missing_ok=True)
         return 1
 
 

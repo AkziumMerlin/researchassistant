@@ -1,3 +1,3 @@
-from research_assistant.cli_ext import app
+from research_assistant.cli_pipeline import app
 
 app()

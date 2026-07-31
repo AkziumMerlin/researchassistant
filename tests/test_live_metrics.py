@@ -35,7 +35,13 @@ def _write_run(
         encoding="utf-8",
     )
     (run_dir / "status.json").write_text(
-        json.dumps({"run_id": run_id, "state": state, "updated_at": "2026-07-31T00:00:02+00:00"}),
+        json.dumps(
+            {
+                "run_id": run_id,
+                "state": state,
+                "updated_at": "2026-07-31T00:00:02+00:00",
+            }
+        ),
         encoding="utf-8",
     )
     return run_dir
@@ -166,8 +172,8 @@ def test_live_dashboard_supports_search_and_completed_scope(tmp_path: Path) -> N
 
 def test_extended_ui_registers_live_metric_route(tmp_path: Path) -> None:
     pytest.importorskip("fastapi")
-    from research_assistant.ui.extensions import install
     from research_assistant.ui import server
+    from research_assistant.ui.extensions import install
 
     install()
     app = server.create_app(tmp_path)
