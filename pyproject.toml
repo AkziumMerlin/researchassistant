@@ -37,7 +37,7 @@ tensorboard = [
 ]
 
 [project.scripts]
-ra = "research_assistant.cli_pipeline:app"
+ra = "research_assistant.cli_research:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/research_assistant"]
