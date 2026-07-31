@@ -10,12 +10,14 @@ _INSTALLED = False
 def _register(app, server_module) -> None:
     try:
         from fastapi import Request
-        from fastapi.responses import HTMLResponse
+        from fastapi.responses import HTMLResponse, Response
     except ImportError as exc:  # pragma: no cover
         raise ResearchAssistantError("UI dependencies are not installed") from exc
 
-    index_path = Path(server_module.__file__).with_name("static") / "index.html"
-    compatibility_script = '<script src="/assets/explorer-bootstrap.js"></script>'
+    static_root = Path(server_module.__file__).with_name("static")
+    index_path = static_root / "index.html"
+    script_path = static_root / "assets" / "explorer-bootstrap.js"
+    compatibility_script = '<script src="/api/extensions/explorer-bootstrap.js"></script>'
     extension_scripts = (
         '<script type="module" src="/api/extensions/jobs.js"></script>\n'
         '<script type="module" src="/api/extensions/pipeline.js"></script>\n'
@@ -44,6 +46,13 @@ def _register(app, server_module) -> None:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         return response
+
+    @app.get("/api/extensions/explorer-bootstrap.js")
+    def explorer_bootstrap_javascript():
+        return Response(
+            script_path.read_text(encoding="utf-8"),
+            media_type="application/javascript",
+        )
 
 
 def install() -> None:

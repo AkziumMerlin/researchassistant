@@ -12,7 +12,7 @@ export default defineConfig({
           return [
             {
               tag: "script",
-              attrs: { src: "/assets/explorer-bootstrap.js" },
+              attrs: { src: "/api/extensions/explorer-bootstrap.js" },
               injectTo: "head-prepend",
             },
           ];

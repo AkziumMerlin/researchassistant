@@ -15,13 +15,13 @@ def test_explorer_bootstrap_precedes_main_bundle_and_lists_files(tmp_path: Path)
 
     index = client.get("/")
     assert index.status_code == 200
-    compatibility = 'src="/assets/explorer-bootstrap.js"'
+    compatibility = 'src="/api/extensions/explorer-bootstrap.js"'
     main_bundle = 'type="module" crossorigin src="/assets/index-'
     assert compatibility in index.text
     assert main_bundle in index.text
     assert index.text.index(compatibility) < index.text.index(main_bundle)
 
-    script = client.get("/assets/explorer-bootstrap.js")
+    script = client.get("/api/extensions/explorer-bootstrap.js")
     assert script.status_code == 200
     assert 'result["connection-status"]' in script.text
     assert "Object.fromEntries = originalFromEntries" in script.text
