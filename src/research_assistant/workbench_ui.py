@@ -245,6 +245,7 @@ def _register(app, server_module) -> None:
 
     @app.post("/api/workbench/environments/inspect")
     def environment_inspect(payload: InterpreterRequest) -> dict[str, Any]:
+        developer().require_trusted()
         return inspect_interpreter(payload.python)
 
     @app.get("/api/workbench/artifacts")
