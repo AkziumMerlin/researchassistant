@@ -10,6 +10,7 @@ const runtimeExtensions = [
   "research-extension.js",
   "workbench-extension.js",
   "terminal-extension.js",
+  "terminal-runtime.js",
   "architecture-extension.js",
   ...Array.from({ length: 8 }, (_, index) =>
     `architecture-v2/part-${String(index).padStart(2, "0")}.txt`,
@@ -64,18 +65,6 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: false,
     target: "es2022",
-    rollupOptions: {
-      input: {
-        app: resolve(import.meta.dirname, "index.html"),
-        "terminal-runtime": resolve(import.meta.dirname, "src/terminal-runtime.js"),
-      },
-      output: {
-        entryFileNames: (chunkInfo) =>
-          chunkInfo.name === "terminal-runtime"
-            ? "terminal-runtime.js"
-            : "assets/[name]-[hash].js",
-      },
-    },
     // Monaco's internal ESM graph is cyclic. Keep its core in the entry chunk;
     // manually splitting modules by path can change their initialization order.
     chunkSizeWarningLimit: 4000,
