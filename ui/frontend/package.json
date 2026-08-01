@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "build": "npm run build:terminal && vite build",
+    "build:terminal": "vite build --config vite.terminal.config.js"
   },
   "dependencies": {
     "@xterm/addon-fit": "0.10.0",
