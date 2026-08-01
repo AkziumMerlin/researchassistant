@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
     <title>ResearchAssistant</title>
-    <script type="module" crossorigin src="/assets/index-CiLNOhAW.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-DNrHTknS.css">
+    <script type="module" crossorigin src="/assets/index-BMMKiehn.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BPaBvd4I.css">
   </head>
   <body>
     <div id="app-shell">
@@ -54,7 +54,7 @@
             <button id="empty-create-button" class="button primary" type="button">Create config</button>
             <span class="shortcut"><kbd>Ctrl</kbd><kbd>S</kbd> saves the active file</span>
           </div>
-          <div id="editor" class="editor" aria-label="File editor"></div>
+          <div id="editor" class="editor" aria-label="File editor" hidden></div>
           <section id="output-panel" class="output-panel" aria-live="polite">
             <div class="output-heading">
               <span id="output-title">Ready</span>
@@ -64,7 +64,7 @@
           </section>
         </section>
 
-        <aside class="sidebar registry-panel">
+        <aside id="registry-panel" class="sidebar registry-panel" hidden>
           <div class="panel-heading">
             <span>Registry</span>
             <span id="component-count" class="counter">0</span>

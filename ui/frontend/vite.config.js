@@ -1,5 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 import { defineConfig } from "vite";
 
@@ -9,6 +9,10 @@ const runtimeExtensions = [
   "pipeline-extension.js",
   "research-extension.js",
   "workbench-extension.js",
+  "architecture-extension.js",
+  ...Array.from({ length: 8 }, (_, index) =>
+    `architecture-v2/part-${String(index).padStart(2, "0")}.txt`,
+  ),
 ];
 const workspaceElementNeedle = '    "workspace-name",\n    "file-count",';
 const workspaceElementReplacement =
@@ -26,7 +30,9 @@ function preserveRuntimeExtensions() {
     },
     async closeBundle() {
       for (const [name, content] of contents) {
-        await writeFile(resolve(staticRoot, name), content);
+        const destination = resolve(staticRoot, name);
+        await mkdir(dirname(destination), { recursive: true });
+        await writeFile(destination, content);
       }
     },
   };

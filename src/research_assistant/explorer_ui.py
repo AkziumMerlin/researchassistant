@@ -12,7 +12,7 @@ from research_assistant.integrations.parameterized_torch_graph import (
 )
 
 _INSTALLED = False
-_PATCH_VERSION = 9
+_PATCH_VERSION = 10
 _PATCH_SUFFIX = f"-explorer{_PATCH_VERSION}"
 _ORIGINAL_MAIN_SCRIPT_PATTERN = re.compile(
     r'(?P<prefix>src="/assets/(?P<name>index-[^"/?]+)\.js)(?P<suffix>\")'
