@@ -229,7 +229,7 @@ class LifecycleManager:
         import datetime as dt
 
         state = self._load()
-        now = dt.datetime.now(dt.timezone.utc)
+        now = dt.datetime.now(dt.UTC)
         selected: list[dict[str, Any]] = []
         reclaimed = 0
         for trash_id, item in list(state["trash"].items()):
