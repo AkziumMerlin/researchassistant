@@ -167,6 +167,7 @@ def _quote_remote_path(value: str) -> str:
 
 _REMOTE_SERVER_CODE = (
     "import sys;"
+    "import research_assistant.cli_workbench;"
     "import uvicorn;"
     "from research_assistant.ui.server import create_app;"
     "root=sys.argv[1];"
