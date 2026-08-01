@@ -8,6 +8,7 @@ const runtimeExtensions = [
   "jobs-extension.js",
   "pipeline-extension.js",
   "research-extension.js",
+  "workbench-extension.js",
 ];
 const workspaceElementNeedle = '    "workspace-name",\n    "file-count",';
 const workspaceElementReplacement =
