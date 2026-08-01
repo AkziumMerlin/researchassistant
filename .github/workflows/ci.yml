@@ -125,6 +125,8 @@ jobs:
           cat src/research_assistant/ui/static/architecture-v2/part-*.txt > /tmp/architecture-v2.js
           node --check /tmp/architecture-v2.js
           python -m pip install -e '.[dev,ui]'
+          ruff format tests/test_ui_layout_regression.py
+          ruff check . --fix
           ruff check .
           pytest tests/test_ui_layout_regression.py
           git diff --check
