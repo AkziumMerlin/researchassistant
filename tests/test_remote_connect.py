@@ -5,8 +5,8 @@ from pathlib import Path
 import pytest
 
 from research_assistant.remote_connect import (
-    RemoteConnectSpec,
     RemoteConnectionError,
+    RemoteConnectSpec,
     RemoteProfileCatalog,
     build_remote_ui_command,
     build_ssh_argv,
