@@ -21,9 +21,11 @@ jobs:
 
           terminal = Path("src/research_assistant/terminal.py")
           content = terminal.read_text(encoding="utf-8")
-          login_block = '''    if len(argv) == 1 and Path(argv[0]).name in {"bash", "zsh", "sh", "dash", "ksh", "fish"}:
-              argv.append("-l")
-          '''
+          login_block = (
+              '    if len(argv) == 1 and Path(argv[0]).name in '
+              '{"bash", "zsh", "sh", "dash", "ksh", "fish"}:\n'
+              '        argv.append("-l")\n'
+          )
           if login_block not in content:
               raise SystemExit("automatic login-shell block was not found")
           terminal.write_text(content.replace(login_block, ""), encoding="utf-8")
