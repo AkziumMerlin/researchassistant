@@ -159,7 +159,11 @@ class TerminalSessionManager:
             result = self.workspace
         else:
             candidate = Path(value).expanduser()
-            result = candidate.resolve() if candidate.is_absolute() else (self.workspace / candidate).resolve()
+            result = (
+                candidate.resolve()
+                if candidate.is_absolute()
+                else (self.workspace / candidate).resolve()
+            )
         if not result.is_dir():
             raise TerminalError(f"terminal working directory does not exist: {result}")
         return result
@@ -276,7 +280,10 @@ class TerminalSessionManager:
     def list(self) -> list[dict[str, Any]]:
         with self._lock:
             sessions = list(self._sessions.values())
-        return sorted((session.metadata() for session in sessions), key=lambda item: item["created_at"])
+        return sorted(
+            (session.metadata() for session in sessions),
+            key=lambda item: item["created_at"],
+        )
 
     def write(self, session_id: str, data: bytes) -> None:
         if len(data) > 1_000_000:
