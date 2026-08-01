@@ -9,8 +9,8 @@ import yaml
 from research_assistant.cli import _abort
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.remote_connect import (
-    RemoteConnectSpec,
     RemoteConnectionError,
+    RemoteConnectSpec,
     RemoteProfileCatalog,
     connect_remote,
 )
