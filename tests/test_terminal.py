@@ -69,6 +69,10 @@ def test_terminal_ui_rest_and_websocket_round_trip(tmp_path: Path) -> None:
     assert any(getattr(route, "path", None) == "/api/terminals" for route in app.routes)
 
     with TestClient(app) as client:
+        index = client.get("/")
+        assert index.status_code == 200
+        assert "/api/extensions/terminal.js" in index.text
+
         created = client.post(
             "/api/terminals",
             json={"shell": "/bin/sh", "cols": 80, "rows": 24},
@@ -92,6 +96,7 @@ def test_terminal_ui_rest_and_websocket_round_trip(tmp_path: Path) -> None:
                     output.extend(message["bytes"])
             assert b"ra-ws-ok" in output
             websocket.send_text(json.dumps({"type": "resize", "cols": 120, "rows": 36}))
+            time.sleep(0.05)
 
         sessions = client.get("/api/terminals").json()["sessions"]
         current = next(item for item in sessions if item["session_id"] == session_id)
