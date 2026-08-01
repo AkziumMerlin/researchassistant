@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +31,7 @@ class TerminalResizeRequest(TerminalRequest):
     rows: int = Field(ge=2, le=300)
 
 
-def _register(app, server_module) -> None:
+def _register(app) -> None:
     try:
         from fastapi import Request, WebSocket, WebSocketDisconnect
         from fastapi.responses import HTMLResponse, Response
@@ -43,6 +44,18 @@ def _register(app, server_module) -> None:
     static_root = Path(__file__).with_name("ui") / "static"
     extension_path = static_root / "terminal-extension.js"
     runtime_path = static_root / "terminal-runtime.js"
+
+    original_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def terminal_lifespan(application):
+        async with original_lifespan(application):
+            try:
+                yield
+            finally:
+                manager.shutdown()
+
+    app.router.lifespan_context = terminal_lifespan
 
     @app.middleware("http")
     async def terminal_extension(request: Request, call_next):
@@ -191,14 +204,10 @@ def _register(app, server_module) -> None:
             await asyncio.gather(*pending, return_exceptions=True)
             for task in done:
                 task.result()
-        except (WebSocketDisconnect, TerminalError):
+        except (WebSocketDisconnect, TerminalError, RuntimeError):
             pass
         finally:
             manager.unsubscribe(session_id, token)
-
-    @app.on_event("shutdown")
-    def shutdown_terminals() -> None:
-        manager.shutdown()
 
 
 def install() -> None:
@@ -211,7 +220,7 @@ def install() -> None:
 
     def create_app(root, plugins=None, *, ssh_mode=None):
         app = original_create_app(root, plugins, ssh_mode=ssh_mode)
-        _register(app, server)
+        _register(app)
         return app
 
     server.create_app = create_app
