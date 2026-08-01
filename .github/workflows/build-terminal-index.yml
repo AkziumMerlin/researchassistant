@@ -26,7 +26,7 @@ jobs:
 
           path = Path("ui/frontend/index.html")
           content = path.read_text(encoding="utf-8")
-          source = '<script type="module" src="/api/extensions/terminal.js"></script>'
+          source = '<script type="module" vite-ignore src="/api/extensions/terminal.js"></script>'
           if source not in content:
               needle = '    <script type="module" src="/src/main.js"></script>'
               replacement = f'    {source}\n{needle}'
