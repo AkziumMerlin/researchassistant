@@ -179,10 +179,13 @@ def export_environment(
     target = Path(destination).expanduser().resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     interpreter = Path(python).expanduser().resolve()
-    if explicit_conda and os.environ.get("CONDA_PREFIX"):
+    if explicit_conda:
+        prefix = interpreter.parent
+        if os.name != "nt" and prefix.name == "bin":
+            prefix = prefix.parent
         try:
             completed = subprocess.run(
-                ["conda", "list", "--explicit"],
+                ["conda", "list", "--explicit", "--prefix", str(prefix)],
                 check=True,
                 capture_output=True,
                 text=True,

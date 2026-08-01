@@ -86,20 +86,36 @@ class LifecycleManager:
             total += size
         return {"bytes": total, "files": files, "roots": roots}
 
-    def _references(self, relative: str) -> list[str]:
+    def _reference_tokens(self, path: Path) -> list[str]:
+        tokens = [self._relative(path)]
+        candidates = [path / "manifest.json", path / "status.json"] if path.is_dir() else []
+        for candidate in candidates:
+            if not candidate.is_file() or candidate.stat().st_size > 16 * 1024 * 1024:
+                continue
+            try:
+                payload = json.loads(candidate.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            for key in ("run_id", "trial_id"):
+                value = payload.get(key)
+                if isinstance(value, str) and len(value) >= 6:
+                    tokens.append(value)
+        return list(dict.fromkeys(tokens))
+
+    def _references(self, tokens: list[str]) -> list[str]:
         references: list[str] = []
         for root_name in (".ra/selections", "publications", "reports"):
             root = self.workspace / root_name
             if not root.is_dir():
                 continue
             for path in root.rglob("*.json"):
-                if path.stat().st_size > 16 * 1024 * 1024:
-                    continue
                 try:
+                    if path.stat().st_size > 16 * 1024 * 1024:
+                        continue
                     text = path.read_text(encoding="utf-8")
                 except OSError:
                     continue
-                if relative in text:
+                if any(token in text for token in tokens):
                     references.append(path.relative_to(self.workspace).as_posix())
                     if len(references) >= 100:
                         return references
@@ -109,7 +125,7 @@ class LifecycleManager:
         path = self._safe_path(raw)
         relative = self._relative(path)
         state = self._load()
-        references = self._references(relative)
+        references = self._references(self._reference_tokens(path))
         reasons: list[str] = []
         if relative in state["pins"]:
             reasons.append("pinned")

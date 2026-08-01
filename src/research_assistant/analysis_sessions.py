@@ -6,6 +6,7 @@ import re
 import signal
 import subprocess
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Literal
@@ -207,11 +208,23 @@ class AnalysisSessionManager:
         if record["state"] != "running":
             return record
         pid = int(record["pid"])
+        termination = "already-exited"
         try:
             os.killpg(pid, signal.SIGTERM)
+            termination = "sigterm"
         except ProcessLookupError:
             pass
+        deadline = time.monotonic() + 5.0
+        while self._alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if self._alive(pid):
+            try:
+                os.killpg(pid, signal.SIGKILL)
+                termination = "sigkill"
+            except ProcessLookupError:
+                pass
         record["state"] = "stopped"
+        record["termination"] = termination
         record["finished_at"] = utc_now()
         atomic_write_json(self._session_dir(session_id) / "session.json", record)
         return record

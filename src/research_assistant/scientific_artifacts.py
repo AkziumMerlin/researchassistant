@@ -50,15 +50,25 @@ def _shape(value: Any) -> list[int]:
     return shape
 
 
-def _flatten(value: Any) -> list[float]:
-    if isinstance(value, list):
-        result: list[float] = []
-        for item in value:
-            result.extend(_flatten(item))
-        return result
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        return [float(value)]
-    raise ScientificArtifactError("artifact contains non-numeric array values")
+def _flatten_limited(value: Any, max_elements: int) -> list[float]:
+    result: list[float] = []
+
+    def visit(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                visit(item)
+            return
+        if isinstance(node, (int, float)) and not isinstance(node, bool):
+            result.append(float(node))
+            if len(result) > max_elements:
+                raise ScientificArtifactError(
+                    f"array contains more than {max_elements} values"
+                )
+            return
+        raise ScientificArtifactError("artifact contains non-numeric array values")
+
+    visit(value)
+    return result
 
 
 def _parse_slice(raw: str | int) -> int | slice:
@@ -240,6 +250,8 @@ class ScientificArtifactCatalog:
                     continue
                 scanned += 1
                 try:
+                    if path.suffix.lower() == ".json" and "shape" not in self._describe(path):
+                        continue
                     added.append(self.register(path))
                 except ScientificArtifactError:
                     continue
@@ -300,6 +312,10 @@ class ScientificArtifactCatalog:
     def _load_array(self, item: dict[str, Any], key: str | None = None) -> Any:
         path = self._safe_path(item["path"])
         suffix = path.suffix.lower()
+        if path.stat().st_size > 64 * 1024 * 1024:
+            raise ScientificArtifactError(
+                "text array artifacts larger than 64 MiB require .npy/.npz storage"
+            )
         if suffix == ".json":
             value = json.loads(path.read_text(encoding="utf-8"))
             if isinstance(value, dict):
@@ -310,25 +326,30 @@ class ScientificArtifactCatalog:
             if not isinstance(value, list):
                 raise ScientificArtifactError("JSON artifact does not contain an array")
             return value
-        if suffix in {".npy", ".npz"}:
-            try:
-                import numpy as np
-            except ImportError as exc:
-                raise ScientificArtifactError("NumPy is required for .npy/.npz artifacts") from exc
-            loaded = np.load(path, allow_pickle=False)
-            if hasattr(loaded, "files"):
-                selected_key = key or (loaded.files[0] if len(loaded.files) == 1 else None)
-                if selected_key is None or selected_key not in loaded.files:
-                    raise ScientificArtifactError("NPZ artifact requires a valid key")
-                loaded = loaded[selected_key]
-            return loaded.tolist()
         if suffix in {".csv", ".tsv"}:
             delimiter = "\t" if suffix == ".tsv" else ","
             with path.open("r", encoding="utf-8", newline="") as handle:
                 rows = list(csv.reader(handle, delimiter=delimiter))
             start = 1 if rows and any(not _is_number(value) for value in rows[0]) else 0
             return [[float(value) for value in row] for row in rows[start:] if row]
-        raise ScientificArtifactError(f"unsupported array format: {suffix or path.name}")
+        raise ScientificArtifactError(f"unsupported text array format: {suffix or path.name}")
+
+    def _load_numpy(self, item: dict[str, Any], key: str | None = None):
+        try:
+            import numpy as np
+        except ImportError as exc:
+            raise ScientificArtifactError("NumPy is required for .npy/.npz artifacts") from exc
+        path = self._safe_path(item["path"])
+        loaded = np.load(path, mmap_mode="r", allow_pickle=False)
+        if isinstance(loaded, np.lib.npyio.NpzFile):
+            try:
+                selected_key = key or (loaded.files[0] if len(loaded.files) == 1 else None)
+                if selected_key is None or selected_key not in loaded.files:
+                    raise ScientificArtifactError("NPZ artifact requires a valid key")
+                return np.asarray(loaded[selected_key])
+            finally:
+                loaded.close()
+        return loaded
 
     def slice(
         self,
@@ -339,14 +360,42 @@ class ScientificArtifactCatalog:
         max_elements: int = 100000,
     ) -> dict[str, Any]:
         item = self.require(artifact_id)
-        value = self._load_array(item, key=key)
         selectors = [_parse_slice(raw) for raw in selection or []]
+        suffix = self._safe_path(item["path"]).suffix.lower()
+        if suffix in {".npy", ".npz"}:
+            import numpy as np
+
+            array = self._load_numpy(item, key=key)
+            try:
+                sliced = array[tuple(selectors)] if selectors else array
+            except IndexError as exc:
+                raise ScientificArtifactError(f"array selection is out of bounds: {exc}") from exc
+            numeric = np.asarray(sliced)
+            if not np.issubdtype(numeric.dtype, np.number):
+                raise ScientificArtifactError("artifact contains non-numeric array values")
+            count = int(numeric.size)
+            if count > max_elements:
+                raise ScientificArtifactError(
+                    f"slice contains {count} values; limit is {max_elements}"
+                )
+            values = numeric.astype(float, copy=False)
+            finite = values[np.isfinite(values)]
+            data = numeric.tolist()
+            return {
+                "artifact_id": artifact_id,
+                "selection": selection or [],
+                "shape": list(numeric.shape),
+                "count": count,
+                "finite_count": int(finite.size),
+                "minimum": float(finite.min()) if finite.size else None,
+                "maximum": float(finite.max()) if finite.size else None,
+                "mean": float(finite.mean()) if finite.size else None,
+                "data": data,
+            }
+
+        value = self._load_array(item, key=key)
         sliced = _slice_nested(value, selectors) if selectors else value
-        flat = _flatten(sliced)
-        if len(flat) > max_elements:
-            raise ScientificArtifactError(
-                f"slice contains {len(flat)} values; limit is {max_elements}"
-            )
+        flat = _flatten_limited(sliced, max_elements)
         finite = [number for number in flat if math.isfinite(number)]
         return {
             "artifact_id": artifact_id,
@@ -360,30 +409,61 @@ class ScientificArtifactCatalog:
             "data": sliced,
         }
 
-    def compare(self, left_id: str, right_id: str, *, key: str | None = None) -> dict[str, Any]:
-        left = self._load_array(self.require(left_id), key=key)
-        right = self._load_array(self.require(right_id), key=key)
-        left_shape = _shape(left)
-        right_shape = _shape(right)
+    def _comparison_values(
+        self,
+        item: dict[str, Any],
+        *,
+        key: str | None,
+        max_elements: int,
+    ) -> tuple[list[int], list[float]]:
+        suffix = self._safe_path(item["path"]).suffix.lower()
+        if suffix in {".npy", ".npz"}:
+            import numpy as np
+
+            array = np.asarray(self._load_numpy(item, key=key))
+            if not np.issubdtype(array.dtype, np.number):
+                raise ScientificArtifactError("artifact contains non-numeric array values")
+            if int(array.size) > max_elements:
+                raise ScientificArtifactError(
+                    f"comparison contains {int(array.size)} values; limit is {max_elements}"
+                )
+            return list(array.shape), array.astype(float, copy=False).reshape(-1).tolist()
+        value = self._load_array(item, key=key)
+        return _shape(value), _flatten_limited(value, max_elements)
+
+    def compare(
+        self,
+        left_id: str,
+        right_id: str,
+        *,
+        key: str | None = None,
+        max_elements: int = 2_000_000,
+    ) -> dict[str, Any]:
+        left_shape, left_values = self._comparison_values(
+            self.require(left_id), key=key, max_elements=max_elements
+        )
+        right_shape, right_values = self._comparison_values(
+            self.require(right_id), key=key, max_elements=max_elements
+        )
         if left_shape != right_shape:
             return {
                 "compatible": False,
                 "left_shape": left_shape,
                 "right_shape": right_shape,
             }
-        left_values = _flatten(left)
-        right_values = _flatten(right)
         differences = [a - b for a, b in zip(left_values, right_values, strict=True)]
-        absolute = [abs(value) for value in differences]
-        squared = [value * value for value in differences]
+        finite = [value for value in differences if math.isfinite(value)]
+        absolute = [abs(value) for value in finite]
+        squared = [value * value for value in finite]
         return {
             "compatible": True,
             "left_shape": left_shape,
             "right_shape": right_shape,
             "count": len(differences),
-            "mae": sum(absolute) / len(absolute) if absolute else 0.0,
-            "rmse": math.sqrt(sum(squared) / len(squared)) if squared else 0.0,
-            "maximum_absolute_error": max(absolute) if absolute else 0.0,
+            "finite_count": len(finite),
+            "mae": sum(absolute) / len(absolute) if absolute else None,
+            "rmse": math.sqrt(sum(squared) / len(squared)) if squared else None,
+            "maximum_absolute_error": max(absolute) if absolute else None,
         }
 
 

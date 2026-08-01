@@ -147,7 +147,9 @@ class DeveloperTools:
             raise DeveloperToolError("explicit commit paths are required")
         relative_paths = [self._safe_path(path).relative_to(self.workspace).as_posix() for path in paths]
         self._run(["git", "add", "--", *relative_paths])
-        result = self._run(["git", "commit", "-m", message])
+        result = self._run(
+            ["git", "commit", "--only", "-m", message, "--", *relative_paths]
+        )
         if push:
             result["push"] = self.git_push()
         return result

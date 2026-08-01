@@ -102,3 +102,89 @@ def test_developer_tools_are_read_only_without_trust(tmp_path: Path) -> None:
     assert result["matches"][0]["path"] == "module.py"
     with pytest.raises(DeveloperToolError, match="trusted developer mode"):
         tools.mkdir("new-directory")
+
+
+def test_artifact_discovery_skips_run_metadata_json(tmp_path: Path) -> None:
+    root = tmp_path / "runs" / "study" / "run"
+    root.mkdir(parents=True)
+    (root / "status.json").write_text(json.dumps({"state": "completed"}), encoding="utf-8")
+    (root / "prediction.json").write_text(json.dumps({"data": [[1.0, 2.0]]}), encoding="utf-8")
+    result = ScientificArtifactCatalog(tmp_path).discover(["runs"])
+    assert [item["name"] for item in result["added"]] == ["prediction.json"]
+
+
+def test_lifecycle_protects_selection_reference_by_run_id(tmp_path: Path) -> None:
+    result = tmp_path / "runs" / "study" / "run"
+    result.mkdir(parents=True)
+    (result / "manifest.json").write_text(
+        json.dumps({"run_id": "run-123456", "trial_id": "trial-123456"}),
+        encoding="utf-8",
+    )
+    selection = tmp_path / ".ra" / "selections" / "final.json"
+    selection.parent.mkdir(parents=True)
+    selection.write_text(json.dumps({"selected_run": "run-123456"}), encoding="utf-8")
+    manager = LifecycleManager(tmp_path)
+    protection = manager.protection(result)
+    assert protection["protected"] is True
+    assert protection["references"] == [".ra/selections/final.json"]
+
+
+def test_developer_commit_excludes_unrelated_staged_files(tmp_path: Path) -> None:
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        pytest.skip("git is unavailable")
+    subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=tmp_path, check=True)
+    (tmp_path / "selected.txt").write_text("one\n", encoding="utf-8")
+    (tmp_path / "other.txt").write_text("one\n", encoding="utf-8")
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    subprocess.run(["git", "commit", "-m", "initial"], cwd=tmp_path, check=True, capture_output=True)
+    (tmp_path / "selected.txt").write_text("two\n", encoding="utf-8")
+    (tmp_path / "other.txt").write_text("two\n", encoding="utf-8")
+    subprocess.run(["git", "add", "other.txt"], cwd=tmp_path, check=True)
+
+    tools = DeveloperTools(tmp_path, trusted=True)
+    tools.git_commit("selected only", paths=["selected.txt"])
+    committed = subprocess.run(
+        ["git", "show", "--pretty=", "--name-only", "HEAD"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    assert committed == ["selected.txt"]
+    assert staged == ["other.txt"]
+
+
+def test_missing_optional_developer_command_is_reported(tmp_path: Path) -> None:
+    tools = DeveloperTools(tmp_path, trusted=False)
+    result = tools._run(["definitely-missing-researchassistant-command"], check=False)
+    assert result["returncode"] == 127
+
+
+def test_numpy_artifact_is_sliced_before_materialization(tmp_path: Path) -> None:
+    np = pytest.importorskip("numpy")
+    path = tmp_path / "runs" / "latent.npy"
+    path.parent.mkdir(parents=True)
+    np.save(path, np.arange(10_000, dtype=np.float32).reshape(100, 100))
+    catalog = ScientificArtifactCatalog(tmp_path)
+    artifact = catalog.register(path, kind="latent", dimensions=["y", "x"])
+    sliced = catalog.slice(
+        artifact["artifact_id"],
+        selection=["10:12", "20:23"],
+        max_elements=10,
+    )
+    assert sliced["shape"] == [2, 3]
+    assert sliced["data"] == [[1020.0, 1021.0, 1022.0], [1120.0, 1121.0, 1122.0]]
+    with pytest.raises(Exception, match="limit"):
+        catalog.slice(artifact["artifact_id"], max_elements=100)
