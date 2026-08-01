@@ -134,8 +134,9 @@ def _register(app, server_module) -> None:
         response.headers["X-ResearchAssistant-UI-Build"] = str(_PATCH_VERSION)
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self' blob:; style-src 'self' 'unsafe-inline'; "
-            "worker-src 'self' blob:; img-src 'self' data: blob:; connect-src 'self'; "
-            "font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
+            "worker-src 'self' blob:; img-src 'self' data: blob:; "
+            "connect-src 'self' ws: wss:; font-src 'self' data:; "
+            "frame-ancestors 'none'; base-uri 'none'"
         )
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Content-Type-Options"] = "nosniff"
