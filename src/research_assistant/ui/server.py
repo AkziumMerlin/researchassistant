@@ -329,7 +329,7 @@ def create_app(
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-            "worker-src 'self' blob:; img-src 'self' data:; connect-src 'self'; "
+            "worker-src 'self' blob:; img-src 'self' data:; connect-src 'self' ws: wss:; "
             "font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
         )
         response.headers["Referrer-Policy"] = "no-referrer"

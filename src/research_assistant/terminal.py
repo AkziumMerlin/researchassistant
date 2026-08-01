@@ -73,8 +73,6 @@ def _shell_argv(value: str | None) -> list[str]:
         if not resolved_path.is_file():
             raise TerminalError(f"shell executable was not found: {executable}")
         argv[0] = str(resolved_path)
-    if len(argv) == 1 and Path(argv[0]).name in {"bash", "zsh", "sh", "dash", "ksh", "fish"}:
-        argv.append("-l")
     return argv
 
 
