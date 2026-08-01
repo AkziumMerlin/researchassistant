@@ -49,8 +49,24 @@ class DeveloperTools:
                 text=True,
                 timeout=timeout,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except OSError as exc:
+            if not check:
+                return {
+                    "argv": argv,
+                    "returncode": 127,
+                    "stdout": "",
+                    "stderr": str(exc),
+                }
             raise DeveloperToolError(f"cannot execute {argv[0]!r}: {exc}") from exc
+        except subprocess.TimeoutExpired as exc:
+            if not check:
+                return {
+                    "argv": argv,
+                    "returncode": 124,
+                    "stdout": exc.stdout or "",
+                    "stderr": exc.stderr or str(exc),
+                }
+            raise DeveloperToolError(f"command timed out: {argv[0]!r}") from exc
         result = {
             "argv": argv,
             "returncode": completed.returncode,
