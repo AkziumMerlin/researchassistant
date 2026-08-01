@@ -28,32 +28,11 @@ function installUnifiedWorkbenchTheme() {
     }
 
     .topbar{
-      position:relative;
-      z-index:40;
       grid-template-columns:270px minmax(180px,1fr) auto;
     }
     .topbar-actions{
-      position:relative;
-      z-index:41;
       min-width:0;
       gap:7px;
-      overflow:visible;
-    }
-    .workbench{grid-template-columns:270px minmax(0,1fr) !important}
-    .editor-column{grid-column:2;width:100%;min-width:0;overflow:hidden}
-    .tabs{grid-row:1}
-    .empty-state,.editor{grid-row:2;grid-column:1}
-    .output-panel{grid-row:3}
-    .editor{display:block;width:100%;height:100%;min-width:0;min-height:0}
-    .editor[hidden]{display:none}
-    .editor>.monaco-editor{width:100% !important;height:100% !important}
-    .registry-panel{display:none !important;grid-column:3}
-    .workbench.ra-registry-open{grid-template-columns:270px minmax(0,1fr) 310px !important}
-    .workbench.ra-registry-open .registry-panel{display:block !important}
-    .ra-registry-controls{display:flex;align-items:center;gap:6px}
-    @media(max-width:1180px){
-      .workbench.ra-registry-open{grid-template-columns:240px minmax(0,1fr) !important}
-      .workbench.ra-registry-open .registry-panel{position:fixed;z-index:60;top:54px;right:0;bottom:24px;display:block !important;width:310px;box-shadow:-18px 0 50px #0009}
     }
     .ra-section-nav{
       display:flex;
@@ -507,59 +486,6 @@ function installUnifiedWorkbenchTheme() {
     });
   }
 
-  const REGISTRY_STATE_KEY = "research-assistant.registry-open.v1";
-
-  function registryIsOpen() {
-    return document.querySelector(".workbench")?.classList.contains("ra-registry-open") || false;
-  }
-
-  function updateRegistryToggle() {
-    const toggle = document.querySelector("#ra-registry-toggle");
-    if (!toggle) return;
-    const open = registryIsOpen();
-    toggle.textContent = open ? "Hide Registry" : "Registry";
-    toggle.setAttribute("aria-pressed", String(open));
-  }
-
-  function setRegistryOpen(open, persist = true) {
-    const workbench = document.querySelector(".workbench");
-    const panel = document.querySelector(".registry-panel");
-    if (!workbench || !panel) return;
-    const changed = registryIsOpen() !== open || panel.hidden === open;
-    workbench.classList.toggle("ra-registry-open", open);
-    panel.hidden = !open;
-    panel.setAttribute("aria-hidden", String(!open));
-    if (persist) {
-      try { localStorage.setItem(REGISTRY_STATE_KEY, open ? "1" : "0"); } catch {}
-    }
-    updateRegistryToggle();
-    if (changed) requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
-  }
-
-  function prepareRegistryPanel() {
-    const panel = document.querySelector(".registry-panel");
-    const heading = panel?.querySelector(".panel-heading");
-    if (!panel || !heading) return;
-    let controls = heading.querySelector(".ra-registry-controls");
-    if (!controls) {
-      controls = document.createElement("span");
-      controls.className = "ra-registry-controls";
-      const count = heading.querySelector("#component-count");
-      if (count) controls.append(count);
-      const close = document.createElement("button");
-      close.type = "button";
-      close.className = "icon-button";
-      close.setAttribute("aria-label", "Hide Registry");
-      close.textContent = "×";
-      close.addEventListener("click", () => setRegistryOpen(false));
-      controls.append(close);
-      heading.append(controls);
-    }
-    let open = false;
-    try { open = localStorage.getItem(REGISTRY_STATE_KEY) === "1"; } catch {}
-    setRegistryOpen(open, false);
-  }
-
   function normalizeTopbar() {
     const actions = document.querySelector(".topbar-actions");
     if (!actions) return;
@@ -592,26 +518,9 @@ function installUnifiedWorkbenchTheme() {
       more.append(summary, popover);
     }
     const popover = more.querySelector(".ra-more-popover");
-    if (popover.dataset.raCloseBound !== "1") {
-      popover.dataset.raCloseBound = "1";
-      popover.addEventListener("click", (event) => {
-        if (event.target.closest("button")) more.removeAttribute("open");
-      });
-    }
-    let registryToggle = actions.querySelector("#ra-registry-toggle");
-    if (!registryToggle) {
-      registryToggle = document.createElement("button");
-      registryToggle.id = "ra-registry-toggle";
-      registryToggle.type = "button";
-      registryToggle.className = "button ghost";
-      registryToggle.textContent = "Registry";
-      registryToggle.addEventListener("click", () => setRegistryOpen(!registryIsOpen()));
-      actions.append(registryToggle);
-    }
-    updateRegistryToggle();
 
     const primaryLabels = ["Models", "Launch", "Jobs", "Pipeline", "Research", "Reports"];
-    const moreLabels = ["Registry", "Charts", "Checkpoints", "Project", "New file"];
+    const moreLabels = ["Charts", "Checkpoints", "Project", "New file"];
     const buttons = [...actions.querySelectorAll(":scope > button")];
     const byLabel = new Map(buttons.map((button) => [button.textContent.trim(), button]));
 
@@ -642,31 +551,21 @@ function installUnifiedWorkbenchTheme() {
   }
 
   function apply() {
-    observer.disconnect();
     document.querySelectorAll("dialog.raX,dialog.raPipe,dialog.raResearch,dialog.ra-models-v2")
       .forEach(decorateDialog);
-    prepareRegistryPanel();
     normalizeTopbar();
-    observer.observe(document.documentElement, { childList: true, subtree: true });
   }
 
   let pending = false;
-  const observer = new MutationObserver((mutations) => {
-    const actions = document.querySelector(".topbar-actions");
-    const relevant = mutations.some((mutation) => {
-      if (mutation.target === actions) return true;
-      return [...mutation.addedNodes].some(
-        (node) => node.nodeType === Node.ELEMENT_NODE
-          && (node.matches?.("dialog") || node.querySelector?.("dialog")),
-      );
-    });
-    if (!relevant || pending) return;
+  const observer = new MutationObserver(() => {
+    if (pending) return;
     pending = true;
     requestAnimationFrame(() => {
       pending = false;
       apply();
     });
   });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
   apply();
 }
 
