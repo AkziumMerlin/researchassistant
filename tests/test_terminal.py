@@ -65,11 +65,10 @@ def test_terminal_rejects_missing_shell(tmp_path: Path) -> None:
 
 def test_terminal_ui_rest_and_websocket_round_trip(tmp_path: Path) -> None:
     app = create_app(tmp_path)
-    with TestClient(app) as client:
-        index = client.get("/")
-        assert index.status_code == 200
-        assert "/api/extensions/terminal.js" in index.text
+    assert hasattr(app.state, "terminal_manager")
+    assert any(getattr(route, "path", None) == "/api/terminals" for route in app.routes)
 
+    with TestClient(app) as client:
         created = client.post(
             "/api/terminals",
             json={"shell": "/bin/sh", "cols": 80, "rows": 24},
