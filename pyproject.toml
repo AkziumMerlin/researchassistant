@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "research-assistant"
-version = "0.1.0"
+version = "0.2.0"
 description = "A local-first, plugin-driven experiment orchestrator."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -31,13 +31,16 @@ ui = [
 reports = [
   "matplotlib>=3.8,<4",
 ]
+scientific = [
+  "numpy>=1.26,<3",
+]
 tensorboard = [
   "torch>=2.2",
   "tensorboard>=2.16,<3",
 ]
 
 [project.scripts]
-ra = "research_assistant.cli_explorer:app"
+ra = "research_assistant.cli_workbench:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/research_assistant"]
@@ -61,3 +64,11 @@ select = ["E", "F", "I", "UP", "B"]
 "src/research_assistant/selection.py" = ["E501"]
 "src/research_assistant/statistics_suite.py" = ["E501"]
 "tests/test_research_pipeline.py" = ["E501"]
+"src/research_assistant/analysis_sessions.py" = ["E501"]
+"src/research_assistant/cli_workbench.py" = ["E501"]
+"src/research_assistant/developer_tools.py" = ["E501"]
+"src/research_assistant/lifecycle.py" = ["E501"]
+"src/research_assistant/scientific_artifacts.py" = ["E501"]
+"src/research_assistant/workbench_ui.py" = ["E501"]
+"src/research_assistant/workspaces.py" = ["E501"]
+"tests/test_research_workbench.py" = ["E501"]
