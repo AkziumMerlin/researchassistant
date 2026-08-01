@@ -1,51 +1,35 @@
 # ResearchAssistant agent instructions
 
-## Repository and working branch
+## Repository and branches
 
 - GitHub repository: `AkziumMerlin/researchassistant`.
-- Continue development on `codex/mvp-core` unless the user explicitly names
-  another branch.
-- PR #1 tracks `codex/mvp-core` into `main`.
-- In a fresh workspace, obtain the source without authentication:
-
-  ```bash
-  git clone --branch codex/mvp-core --single-branch \
-    https://github.com/AkziumMerlin/researchassistant.git researchassistant
-  ```
+- Treat `main` as the protected integration branch.
+- Start each development cycle from the current `main` on a descriptive namespaced branch such as
+  `agent/...`, `feature/...`, `fix/...`, or a user-specified branch.
+- Never force-push or write implementation commits directly to `main`.
 
 ## Publishing changes
 
-GitHub CLI authentication is ephemeral in ChatGPT workspaces. Do not require
-`gh`, a device-login flow, a PAT, or credentials stored in files or git
-remotes. Use the connected GitHub app for remote writes. Local `git` remains
-the source for status, diffs, and validation.
+GitHub CLI authentication may be ephemeral in agent workspaces. Prefer ordinary local Git when an
+authenticated checkout is available. When it is not, use the connected GitHub app and Git Data API
+without storing tokens or credentials in files or remotes.
 
-For every requested commit and push:
+For every requested publish operation:
 
-1. Inspect `git status --short` and the complete intended diff. Do not include
-   unrelated changes.
-2. Run the relevant tests/builds and report any checks that could not run.
-3. Read PR #1 immediately before publishing and take its `head_sha` as the
-   parent of the new commit. Confirm that the head branch is
-   `codex/mvp-core`.
-4. Upload each added or modified file with the GitHub app's Git Data API:
-   create blobs, then create one tree based on the parent commit's tree.
-   Represent deletions with null tree entries. Preserve executable modes.
-5. Create exactly one commit whose parent is the observed remote head.
-6. Re-read PR #1. If its head changed meanwhile, do not force-update it:
-   rebuild the commit on the new head or stop on a real conflict.
-7. Fast-forward `codex/mvp-core` to the new commit with `force: false`.
-8. Verify the branch head, fetch the resulting commit, and compare the remote
-   file contents/tree with the intended local state.
+1. Inspect the complete intended diff and exclude unrelated user changes.
+2. Run the relevant Python tests, Ruff checks, frontend build, and wheel smoke tests.
+3. Read the remote branch head immediately before constructing the commit.
+4. Create commits with the observed remote head as parent and fast-forward with `force: false`.
+5. Verify the resulting remote tree and CI state.
+6. Open a draft PR to `main` unless the user explicitly requests another review state.
 
-For a single small UTF-8 file, the GitHub Contents API may replace steps 4--7,
-provided it targets `codex/mvp-core`, uses the current blob SHA when updating,
-and the result is verified.
+For connector-only publication, prefer one Git tree and one functional commit. Temporary bootstrap
+files or workflows must be restricted to the development branch, must not contain credentials, and
+must delete themselves from the resulting functional tree.
 
-The remote commit is canonical. After connector-based publication, use a
-fresh checkout (or another non-destructive synchronization) before making
-further changes so the local branch does not diverge from the connector-created
-commit.
+## Safety and reproducibility
 
-Never force-push, write to `main`, publish secrets, or silently fall back to
-interactive GitHub authentication.
+- Preserve executable modes and generated UI assets.
+- Do not publish secrets, local environment files, datasets, run artifacts, or caches.
+- Keep the browser server loopback-only and preserve its path and process-execution boundaries.
+- Document user-facing CLI or UI changes and add regression tests for new behavior.
