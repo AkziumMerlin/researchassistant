@@ -38,6 +38,9 @@ def _register(app) -> None:
     except ImportError as exc:  # pragma: no cover
         raise ResearchAssistantError("UI dependencies are not installed") from exc
 
+    # FastAPI resolves postponed endpoint annotations in the module namespace.
+    globals()["WebSocket"] = WebSocket
+
     workspace = Path(app.state.workspace.root).resolve()
     manager = TerminalSessionManager(workspace)
     app.state.terminal_manager = manager
