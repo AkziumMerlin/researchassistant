@@ -10,7 +10,6 @@ from typing import Any, Literal
 from research_assistant.artifacts import atomic_write_json, utc_now
 from research_assistant.errors import ResearchAssistantError
 
-
 ArtifactKind = Literal[
     "array",
     "prediction",
