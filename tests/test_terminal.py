@@ -72,6 +72,7 @@ def test_terminal_ui_rest_and_websocket_round_trip(tmp_path: Path) -> None:
         index = client.get("/")
         assert index.status_code == 200
         assert "/api/extensions/terminal.js" in index.text
+        assert "connect-src 'self' ws: wss:" in index.headers["content-security-policy"]
 
         created = client.post(
             "/api/terminals",
