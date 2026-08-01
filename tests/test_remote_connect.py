@@ -57,6 +57,7 @@ def test_remote_command_uses_conda_and_headless_asgi_server() -> None:
     assert "CONDA_EXE=" in command
     assert "run --no-capture-output" in command
     assert "-n KNO python" in command
+    assert "import research_assistant.cli_workbench" in command
     assert "create_app(root, plugins, ssh_mode=True)" in command
     assert "host='127.0.0.1'" in command
     assert "34567" in command
