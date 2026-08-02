@@ -13,6 +13,7 @@ const runtimeExtensions = [
   "terminal-runtime.js",
   "system-monitor-extension.js",
   "architecture-extension.js",
+  "monaco-global.js",
   "explorer-plus.js",
   "component-search.js",
   "notebook-extension.js",
@@ -23,23 +24,6 @@ const runtimeExtensions = [
 const workspaceElementNeedle = '    "workspace-name",\n    "file-count",';
 const workspaceElementReplacement =
   '    "workspace-name",\n    "connection-status",\n    "file-count",';
-const startNeedle = "\nstart();";
-const startReplacement = `
-globalThis.__RA_WORKBENCH__ = Object.freeze({
-  api,
-  openFile,
-  addBuffer,
-  activateBuffer,
-  closeBuffer,
-  reloadWorkspaceFiles,
-  renderFiles,
-  renderRegistry,
-  monaco,
-  getState: () => state,
-});
-start().finally(() => {
-  globalThis.dispatchEvent(new CustomEvent("ra-workbench-ready"));
-});`;
 
 function preserveRuntimeExtensions() {
   const contents = new Map();
@@ -70,23 +54,14 @@ export default defineConfig({
       enforce: "pre",
       transform(code, id) {
         if (!id.endsWith("/src/main.js")) return null;
-        let transformed = code;
-        if (!transformed.includes('    "connection-status",\n')) {
-          if (!transformed.includes(workspaceElementNeedle)) {
-            throw new Error("Could not locate the frontend workspace element registry");
-          }
-          transformed = transformed.replace(
-            workspaceElementNeedle,
-            workspaceElementReplacement,
-          );
+        if (code.includes('    "connection-status",\n')) return null;
+        if (!code.includes(workspaceElementNeedle)) {
+          throw new Error("Could not locate the frontend workspace element registry");
         }
-        if (!transformed.includes("globalThis.__RA_WORKBENCH__")) {
-          if (!transformed.includes(startNeedle)) {
-            throw new Error("Could not locate the frontend start invocation");
-          }
-          transformed = transformed.replace(startNeedle, startReplacement);
-        }
-        return transformed === code ? null : { code: transformed, map: null };
+        return {
+          code: code.replace(workspaceElementNeedle, workspaceElementReplacement),
+          map: null,
+        };
       },
     },
   ],
