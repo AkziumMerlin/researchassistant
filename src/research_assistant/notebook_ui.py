@@ -111,6 +111,13 @@ def _register(app) -> None:
 
     @app.post("/api/notebooks/file", status_code=201)
     def notebook_create(payload: NotebookCreateRequest) -> dict[str, Any]:
+        destination = workspace.resolve(payload.path)
+        try:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise NotebookError(
+                f"cannot create notebook directory {destination.parent}: {exc}"
+            ) from exc
         return store.create(payload.path, kernel_name=payload.kernel_name)
 
     @app.put("/api/notebooks/file")
