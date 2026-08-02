@@ -79,7 +79,14 @@ def connect_command(
     ],
     workspace: Annotated[
         str | None,
-        typer.Option("--workspace", "-w", help="Absolute workspace path on the server."),
+        typer.Option(
+            "--workspace",
+            "-w",
+            help=(
+                "Workspace path on the server; relative paths are resolved from "
+                "the SSH login directory."
+            ),
+        ),
     ] = None,
     conda_env: Annotated[
         str | None,
