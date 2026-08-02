@@ -1,9 +1,9 @@
 # Local browser UI
 
 ResearchAssistant includes a self-contained browser workbench for authoring project files,
-launching experiment configurations, monitoring runs, and building reports. It is launched by the
-Python CLI and uses the same registry, Pydantic schemas, config model, planner, and local
-subprocess launcher as terminal commands.
+launching experiment configurations, monitoring runs, working in an interactive terminal, and
+building reports. It is launched by the Python CLI and uses the same registry, Pydantic schemas,
+config model, planner, and local subprocess launcher as terminal commands.
 
 ## Install and launch
 
@@ -22,26 +22,26 @@ ra ui . --plugin my_project.plugin
 The default URL is `http://127.0.0.1:8765`. `--no-open` suppresses automatic browser launch, and
 `--port` selects another local port.
 
-On a remote Linux server, use:
+For normal remote work, run the client locally:
 
 ```bash
-ra ui . --plugin my_project.plugin --ssh --ssh-target user@server --port 8765
+ra connect gpu-server \
+  --workspace /home/user/project \
+  --conda-env project-env \
+  --plugin my_project.plugin
 ```
 
-SSH mode suppresses the server-side browser and prints the exact local forwarding command:
-
-```bash
-ssh -N -L 8765:127.0.0.1:8765 user@server
-```
-
-Open `http://127.0.0.1:8765` locally. The service remains bound to the server loopback interface;
-the UI deliberately rejects `0.0.0.0` and other remote bindings.
+`ra connect` starts the UI backend on the server loopback interface, creates the SSH forwarding,
+waits for readiness, and opens the browser locally. The legacy `ra ui --ssh` mode remains available
+when a manually managed tunnel is required.
 
 ## Workbench features
 
 - project tree with filtering and generated-directory exclusions;
 - Monaco Editor, the MIT-licensed editor core from VS Code;
 - multiple file models, tab-local undo history, syntax highlighting, find, folding, and `Ctrl+S`;
+- a full PTY-backed terminal using xterm.js, including multiple tabs, ANSI colors, interactive TUI
+  programs, stdin, `Ctrl+C`, resize, scrollback, reconnect, and recent-output replay;
 - new UTF-8 text files without implicit directory creation;
 - live catalog of registered component types and their schema fields;
 - a PyTorch model-graph editor with a searchable standard-module palette, draggable nodes,
@@ -84,14 +84,29 @@ Standalone `.pt`, `.pth`, and `.ckpt` files require an explicit saved config. Ac
 requests use the same detached scheduler as ordinary launches, so browser or SSH-tunnel loss does
 not interrupt evaluation.
 
+## Browser terminal
+
+Open **Terminal** in the top bar or press `Ctrl+Shift+Backquote`. Each tab owns a real POSIX PTY, so
+ordinary shells, Conda activation, Python/IPython, `vim`, `htop`, `tmux`, and other interactive
+programs behave as they do in a native terminal. A new tab can choose its working directory, shell
+command, and title; otherwise it starts in the workspace using `$SHELL`.
+
+Closing the terminal dialog or browser only disconnects the renderer. The shell remains alive while
+the UI backend is running, and reopening the dialog reconnects and replays its bounded recent
+output. Closing an individual terminal tab terminates that PTY process. A backend restart ends its
+terminal sessions; use `tmux` or `screen` inside the terminal for work that must survive that
+restart.
+
+With `ra connect`, the PTY is created by the remote backend. The browser remains local, but every
+terminal command executes directly on the selected server in the remote workspace and environment.
+
 ## Browser launches and SSH resilience
 
-The browser never submits a shell command. A launch request contains a saved workspace-relative
-experiment config, an optional saved launcher policy, a workspace-relative artifact root, and the
-resume choice. Both the config and launcher policy may carry the same dotted-path overrides as
-their CLI commands. The backend composes and validates inheritance, loads the component registry,
-compiles the complete plan, checks the launcher contract, and rejects paths outside the workspace
-before starting anything.
+A structured launch request contains a saved workspace-relative experiment config, an optional
+saved launcher policy, a workspace-relative artifact root, and the resume choice. Both the config
+and launcher policy may carry the same dotted-path overrides as their CLI commands. The backend
+composes and validates inheritance, loads the component registry, compiles the complete plan,
+checks the launcher contract, and rejects paths outside the workspace before starting anything.
 
 Each accepted request is resolved into an immutable snapshot under:
 
@@ -111,11 +126,11 @@ files after reconnection.
 This guarantee covers loss of the browser and UI server. It does not yet provide scheduler-worker
 adoption if the detached scheduler itself is killed or the machine restarts.
 
-## File consistency and security boundary
+## File consistency and server boundary
 
-The server receives a single project root. Browser paths cannot be absolute, contain `..`, enter
-excluded generated directories, or resolve through a symlink outside that root. Files must be
-UTF-8 text and are limited to 2 MiB.
+The server receives a single project root. Browser file-editor paths cannot be absolute, contain
+`..`, enter excluded generated directories, or resolve through a symlink outside that root. Files
+must be UTF-8 text and are limited to 2 MiB.
 
 Each read returns a SHA-256 revision. A save succeeds only if that revision still matches the file
 on disk, or if a new path still does not exist. The write is flushed and atomically replaces the
@@ -123,12 +138,10 @@ target. This prevents a browser tab from silently overwriting edits made by Git,
 or another UI session.
 
 The server sets a same-origin content security policy, does not enable CORS, accepts local Host
-headers only, and ships Monaco assets inside the wheel. No editor code is loaded from a CDN.
-
-There is intentionally no browser terminal, general command runner, file deletion, remote bind, or
-arbitrary process endpoint. Experiment launch is the only process operation and is restricted to
-the validated orchestration contract above. The UI currently does not expose force-kill or file
-deletion operations.
+headers only, and ships Monaco and xterm assets inside the wheel. No editor or terminal code is
+loaded from a CDN. There is no separate general-purpose command-over-HTTP endpoint: interactive
+commands flow through a PTY WebSocket, while experiment launches continue to use their typed
+orchestration API.
 
 The analytics endpoints accept only artifact roots inside the workspace. They never return raw
 unbounded event streams: aggregation and optional step bucketing run in SQLite, and the browser
@@ -146,5 +159,6 @@ npm ci
 npm run build
 ```
 
-Vite writes the production build to `src/research_assistant/ui/static`. Those generated files and
-the Monaco license are included in the Python wheel; `node_modules` is not.
+The build first produces the standalone xterm runtime and then the main Monaco workbench. Vite
+writes both to `src/research_assistant/ui/static`. Generated files and their licenses are included
+in the Python wheel; `node_modules` is not.
