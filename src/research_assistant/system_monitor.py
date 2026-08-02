@@ -728,7 +728,11 @@ class SystemMonitor:
     def process_context(self, pid: int) -> dict[str, Any]:
         if pid <= 0:
             raise SystemMonitorError("invalid process identifier")
-        snapshot = self.snapshot(process_limit=2000, process_sort="pid")
+        snapshot = self.snapshot(
+            process_limit=100,
+            process_sort="pid",
+            search=str(pid),
+        )
         process = next((row for row in snapshot["processes"] if row["pid"] == pid), None)
         if process is None:
             raise SystemMonitorError(f"process {pid} is no longer running")
