@@ -41,7 +41,7 @@ when a manually managed tunnel is required.
 - Monaco Editor, the MIT-licensed editor core from VS Code;
 - multiple file models, tab-local undo history, syntax highlighting, find, folding, and `Ctrl+S`;
 - a full PTY-backed terminal using xterm.js, including multiple tabs, ANSI colors, interactive TUI
-  programs, stdin, `Ctrl+C`, resize, scrollback, reconnect, and recent-output replay;
+  programs, stdin, `Ctrl+C`, resize, scrollback, and tmux-backed restoration after UI/SSH reconnects;
 - new UTF-8 text files without implicit directory creation;
 - live catalog of registered component types and their schema fields;
 - a PyTorch model-graph editor with a searchable standard-module palette, draggable nodes,
@@ -87,18 +87,32 @@ not interrupt evaluation.
 ## Browser terminal
 
 Open **Terminal** in the top bar or press `Ctrl+Shift+Backquote`. Each tab owns a real POSIX PTY, so
-ordinary shells, Conda activation, Python/IPython, `vim`, `htop`, `tmux`, and other interactive
-programs behave as they do in a native terminal. A new tab can choose its working directory, shell
-command, and title; otherwise it starts in the workspace using `$SHELL`.
+ordinary shells, Conda activation, Python/IPython, `vim`, `htop`, and other interactive programs
+behave as they do in a native terminal. A new tab can choose its working directory, shell command,
+and title; otherwise it starts in the workspace using `$SHELL`.
 
-Closing the terminal dialog or browser only disconnects the renderer. The shell remains alive while
-the UI backend is running, and reopening the dialog reconnects and replays its bounded recent
-output. Closing an individual terminal tab terminates that PTY process. A backend restart ends its
-terminal sessions; use `tmux` or `screen` inside the terminal for work that must survive that
-restart.
+When `tmux` is installed on the backend machine, each tab is hosted by a session in a dedicated,
+workspace-scoped tmux server. Closing the dialog or browser only disconnects the renderer. Loss of
+the SSH tunnel or restart of the ResearchAssistant Uvicorn process also leaves the shell, current
+directory, environment, foreground program, screen state, and tmux scrollback running. A new UI
+backend for the same resolved workspace discovers those sessions and restores the tabs
+automatically. Closing an individual terminal tab explicitly kills its tmux session.
 
-With `ra connect`, the PTY is created by the remote backend. The browser remains local, but every
-terminal command executes directly on the selected server in the remote workspace and environment.
+ResearchAssistant does not reuse or modify the user's ordinary tmux server. The dedicated server is
+selected from a stable hash of the resolved workspace path. Sessions survive UI and `ra connect`
+restarts, but not a server reboot unless tmux itself is restored by the host.
+
+If `tmux` is absent, the UI falls back to a PTY owned by the current backend and reports that the
+session is non-persistent. Install tmux through the system package manager or, for a Conda-backed
+remote environment, with:
+
+```bash
+conda install -n project-env -c conda-forge tmux
+```
+
+With `ra connect`, both the PTY and the dedicated tmux server run remotely. The browser remains
+local, while every terminal command executes directly on the selected server in the remote
+workspace and environment.
 
 ## Browser launches and SSH resilience
 
