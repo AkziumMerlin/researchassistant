@@ -48,6 +48,7 @@ jobs:
           python-version: "3.12"
       - run: npm ci --prefix ui/frontend
       - run: npm run build --prefix ui/frontend
+      - run: node --check src/research_assistant/ui/static/terminal-extension.js
       - run: node --check src/research_assistant/ui/static/system-monitor-extension.js
       - name: Verify generated UI assets are committed
         run: |
