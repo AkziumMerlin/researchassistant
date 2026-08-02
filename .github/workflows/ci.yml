@@ -8,65 +8,6 @@ permissions:
   contents: read
 
 jobs:
-  publish-registration-fix:
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/explorer-search-notebooks
-      - name: Finalize UI registration after the CLI extension chain
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("src/research_assistant/cli_workbench.py")
-          text = path.read_text(encoding="utf-8")
-          old = '''if importlib.util.find_spec("fastapi") is not None:
-              from research_assistant.workbench_ui import install as install_workbench_ui
-
-              install_workbench_ui()
-          '''
-          new = '''if importlib.util.find_spec("fastapi") is not None:
-              from research_assistant.notebook_ui import _register as register_notebook_ui
-              from research_assistant.ui import server
-              from research_assistant.workbench_ui import install as install_workbench_ui
-              from research_assistant.workspace_browser_ui import (
-                  _register as register_workspace_browser_ui,
-              )
-
-              install_workbench_ui()
-              original_create_app = server.create_app
-
-              def create_app(root, plugins=None, *, ssh_mode=None):
-                  app = original_create_app(root, plugins, ssh_mode=ssh_mode)
-                  paths = {getattr(route, "path", None) for route in app.routes}
-                  if "/api/workspace/entries" not in paths:
-                      register_workspace_browser_ui(app)
-                  if not hasattr(app.state, "notebook_kernels"):
-                      register_notebook_ui(app)
-                  return app
-
-              server.create_app = create_app
-          '''
-          if old not in text:
-              if "register_workspace_browser_ui" in text:
-                  raise SystemExit(0)
-              raise SystemExit("could not locate cli_workbench UI installation block")
-          path.write_text(text.replace(old, new), encoding="utf-8")
-          PY
-      - name: Commit registration fix
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add src/research_assistant/cli_workbench.py
-          if git diff --cached --quiet; then
-            exit 0
-          fi
-          git commit -m "Finalize Explorer and notebook UI registration"
-          git push origin HEAD:feature/explorer-search-notebooks
-
   test:
     runs-on: ubuntu-latest
     strategy:
