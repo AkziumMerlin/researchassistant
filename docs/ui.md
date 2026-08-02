@@ -1,7 +1,7 @@
 # Local browser UI
 
 ResearchAssistant includes a self-contained browser workbench for authoring project files,
-launching experiment configurations, monitoring runs, working in an interactive terminal, and
+launching experiment configurations, monitoring runs, working in terminals and notebooks, and
 building reports. It is launched by the Python CLI and uses the same registry, Pydantic schemas,
 config model, planner, and local subprocess launcher as terminal commands.
 
@@ -13,6 +13,7 @@ Install the optional server dependencies:
 pip install -e '.[ui]'
 ```
 
+The UI extra includes FastAPI/Uvicorn with WebSocket support and the Python Jupyter kernel runtime.
 Launch a project and load its development plugin:
 
 ```bash
@@ -37,15 +38,18 @@ when a manually managed tunnel is required.
 
 ## Workbench features
 
-- project tree with filtering and generated-directory exclusions;
+- a lazy, collapsible project tree with per-directory pagination and full-workspace path search;
 - Monaco Editor, the MIT-licensed editor core from VS Code;
 - multiple file models, tab-local undo history, syntax highlighting, find, folding, and `Ctrl+S`;
+- integrated `.ipynb` editing with Monaco cells, persistent Jupyter kernels, per-cell and sequential
+  execution, Markdown preview, streamed output, images, interrupt, restart, and shutdown controls;
 - a full PTY-backed terminal using xterm.js, including multiple tabs, ANSI colors, interactive TUI
   programs, stdin, `Ctrl+C`, resize, scrollback, and tmux-backed restoration after UI/SSH reconnects;
 - new UTF-8 text files without implicit directory creation;
 - live catalog of registered component types and their schema fields;
-- a PyTorch model-graph editor with a searchable standard-module palette, draggable nodes,
-  visual edges, multi-input operations, and server-side DAG validation;
+- a PyTorch model-graph editor with ranked component search across names, providers, categories,
+  descriptions, and metadata, plus keyboard navigation, draggable nodes, visual edges, multi-input
+  operations, and server-side DAG validation;
 - a visual config creator generated from component Pydantic schemas;
 - enum, boolean, number, required-field, array, and object inputs;
 - multiple seeds, resources, stages, and stage dependencies;
@@ -83,6 +87,44 @@ server. Selecting a managed checkpoint restores its resolved source config and p
 Standalone `.pt`, `.pth`, and `.ckpt` files require an explicit saved config. Accepted inference
 requests use the same detached scheduler as ordinary launches, so browser or SSH-tunnel loss does
 not interrupt evaluation.
+
+## Explorer
+
+Explorer no longer receives a flat, globally truncated list from `/api/bootstrap`. It loads only the
+visible directory, fetches children when a folder is expanded, and paginates directories with many
+entries. Expanded folders are remembered per resolved workspace. **Collapse** closes the entire
+tree, while **Refresh** invalidates loaded directory pages.
+
+The search field queries the backend recursively, including directories that have never been
+expanded. Search terms are matched against workspace-relative paths. Generated and excluded roots
+such as `.git`, `.ra`, `node_modules`, and `runs` remain outside the editor boundary.
+
+## Models component search
+
+The Models palette supports token and fuzzy matching rather than only literal substring filtering.
+Search ranks exact and prefix name matches first, then component name fragments, category,
+provider, description, and metadata. Category and provider selectors can be combined with text.
+Use `Ctrl+K` or `/` while Models is open, arrow keys to move through results, and Enter to add the
+selected component.
+
+## Integrated notebooks
+
+Open `.ipynb` files directly from Explorer or use **Notebooks** in the top bar. The notebook UI uses
+Monaco for code and Markdown cells and supports `Shift+Enter`, `Ctrl+Enter`, per-cell execution,
+sequential **Run all**, cell insertion/reordering/deletion, execution counts, stdout/stderr,
+tracebacks, JSON, text, PNG, and JPEG output. Markdown preview is rendered without directly
+executing or injecting notebook HTML.
+
+The kernel selector lists Jupyter kernelspecs visible to the UI environment. Kernel processes are
+detached from the browser and Uvicorn process and recorded under `.ra/notebook-kernels/`. The same
+kernel, variables, and running computation are rediscovered after browser closure, SSH-forwarding
+loss, `ra connect` reconnection, or UI-backend replacement. Explicit shutdown removes the process
+and record; machine restart is not recovered automatically. See `docs/notebooks.md` for kernelspec
+setup and operational details.
+
+Notebook files use optimistic revisions like text files. Outputs and execution counts remain in the
+active notebook document and are written into the `.ipynb` file by **Save**. Kernel event replay is
+kept separately so reconnecting the UI does not lose the current execution display before saving.
 
 ## Browser terminal
 
@@ -143,8 +185,9 @@ adoption if the detached scheduler itself is killed or the machine restarts.
 ## File consistency and server boundary
 
 The server receives a single project root. Browser file-editor paths cannot be absolute, contain
-`..`, enter excluded generated directories, or resolve through a symlink outside that root. Files
-must be UTF-8 text and are limited to 2 MiB.
+`..`, enter excluded generated directories, or resolve through a symlink outside that root. Text
+files must be UTF-8 and are limited to 2 MiB; validated notebook documents have a separate 64 MiB
+limit.
 
 Each read returns a SHA-256 revision. A save succeeds only if that revision still matches the file
 on disk, or if a new path still does not exist. The write is flushed and atomically replaces the
@@ -152,10 +195,10 @@ target. This prevents a browser tab from silently overwriting edits made by Git,
 or another UI session.
 
 The server sets a same-origin content security policy, does not enable CORS, accepts local Host
-headers only, and ships Monaco and xterm assets inside the wheel. No editor or terminal code is
-loaded from a CDN. There is no separate general-purpose command-over-HTTP endpoint: interactive
-commands flow through a PTY WebSocket, while experiment launches continue to use their typed
-orchestration API.
+headers only, and ships Monaco and xterm assets inside the wheel. No editor, notebook, or terminal
+code is loaded from a CDN. There is no separate general-purpose command-over-HTTP endpoint:
+interactive commands flow through typed terminal and notebook WebSockets, while experiment
+launches continue to use their orchestration API.
 
 The analytics endpoints accept only artifact roots inside the workspace. They never return raw
 unbounded event streams: aggregation and optional step bucketing run in SQLite, and the browser

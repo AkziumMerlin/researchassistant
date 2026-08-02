@@ -13,6 +13,10 @@ const runtimeExtensions = [
   "terminal-runtime.js",
   "system-monitor-extension.js",
   "architecture-extension.js",
+  "monaco-global.js",
+  "explorer-plus.js",
+  "component-search.js",
+  "notebook-extension.js",
   ...Array.from({ length: 8 }, (_, index) =>
     `architecture-v2/part-${String(index).padStart(2, "0")}.txt`,
   ),

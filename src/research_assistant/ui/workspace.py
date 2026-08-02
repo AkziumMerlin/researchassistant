@@ -10,6 +10,8 @@ from typing import Any
 from research_assistant.errors import ResearchAssistantError
 
 MAX_EDITABLE_BYTES = 2 * 1024 * 1024
+MAX_DIRECTORY_PAGE = 1000
+MAX_SEARCH_PAGE = 1000
 IGNORED_DIRECTORIES = {
     ".git",
     ".mypy_cache",
@@ -71,6 +73,155 @@ class Workspace:
             raise WorkspaceError(f"path escapes workspace: {relative_path!r}")
         return candidate
 
+    def _directory_has_children(self, path: Path) -> bool:
+        try:
+            with os.scandir(path) as iterator:
+                for item in iterator:
+                    if item.is_symlink():
+                        continue
+                    if item.is_dir(follow_symlinks=False):
+                        if item.name not in IGNORED_DIRECTORIES:
+                            return True
+                    elif item.is_file(follow_symlinks=False):
+                        return True
+        except OSError:
+            return False
+        return False
+
+    def _entry(self, path: Path, *, include_children: bool = True) -> dict[str, Any] | None:
+        if path.is_symlink():
+            return None
+        relative = path.relative_to(self.root).as_posix()
+        try:
+            if path.is_dir():
+                if path.name in IGNORED_DIRECTORIES:
+                    return None
+                return {
+                    "path": relative,
+                    "name": path.name,
+                    "kind": "directory",
+                    "has_children": self._directory_has_children(path)
+                    if include_children
+                    else True,
+                }
+            if not path.is_file():
+                return None
+            size = path.stat().st_size
+        except OSError:
+            return None
+        return {
+            "path": relative,
+            "name": path.name,
+            "kind": "file",
+            "size": size,
+            "editable": size <= self.max_file_bytes,
+            "notebook": path.suffix.lower() == ".ipynb",
+        }
+
+    def directory(
+        self,
+        relative_path: str = "",
+        *,
+        offset: int = 0,
+        limit: int = 250,
+    ) -> dict[str, Any]:
+        if offset < 0:
+            raise WorkspaceError("directory offset must be non-negative")
+        if not 1 <= limit <= MAX_DIRECTORY_PAGE:
+            raise WorkspaceError(
+                f"directory limit must be between 1 and {MAX_DIRECTORY_PAGE}"
+            )
+        directory = self.resolve(relative_path, allow_root=True)
+        if not directory.is_dir() or directory.is_symlink():
+            raise WorkspaceError(f"workspace directory does not exist: {relative_path or '.'}")
+
+        entries: list[dict[str, Any]] = []
+        try:
+            children = sorted(
+                directory.iterdir(),
+                key=lambda item: (
+                    0 if item.is_dir() and not item.is_symlink() else 1,
+                    item.name.casefold(),
+                    item.name,
+                ),
+            )
+        except OSError as exc:
+            raise WorkspaceError(f"cannot list {relative_path or '.'}: {exc}") from exc
+
+        for child in children:
+            entry = self._entry(child)
+            if entry is not None:
+                entries.append(entry)
+
+        page = entries[offset : offset + limit]
+        next_offset = offset + len(page)
+        return {
+            "path": PurePosixPath(relative_path).as_posix()
+            if relative_path
+            else "",
+            "entries": page,
+            "offset": offset,
+            "limit": limit,
+            "total": len(entries),
+            "next_offset": next_offset if next_offset < len(entries) else None,
+        }
+
+    def search(
+        self,
+        query: str,
+        *,
+        offset: int = 0,
+        limit: int = 250,
+    ) -> dict[str, Any]:
+        terms = [term for term in query.casefold().split() if term]
+        if not terms:
+            raise WorkspaceError("workspace search query must not be empty")
+        if offset < 0:
+            raise WorkspaceError("search offset must be non-negative")
+        if not 1 <= limit <= MAX_SEARCH_PAGE:
+            raise WorkspaceError(f"search limit must be between 1 and {MAX_SEARCH_PAGE}")
+
+        wanted = offset + limit
+        matches: list[dict[str, Any]] = []
+        truncated = False
+        for directory, dirnames, filenames in os.walk(self.root, followlinks=False):
+            current = Path(directory)
+            dirnames[:] = sorted(
+                name
+                for name in dirnames
+                if name not in IGNORED_DIRECTORIES and not (current / name).is_symlink()
+            )
+            relative_dir = current.relative_to(self.root)
+            for name in [*dirnames, *sorted(filenames)]:
+                path = current / name
+                if path.is_symlink():
+                    continue
+                relative = (relative_dir / name).as_posix()
+                haystack = relative.casefold()
+                if not all(term in haystack for term in terms):
+                    continue
+                entry = self._entry(path, include_children=False)
+                if entry is None:
+                    continue
+                if len(matches) < wanted:
+                    matches.append(entry)
+                else:
+                    truncated = True
+                    break
+            if truncated:
+                break
+
+        page = matches[offset : offset + limit]
+        next_offset = offset + len(page)
+        return {
+            "query": query,
+            "entries": page,
+            "offset": offset,
+            "limit": limit,
+            "next_offset": next_offset if truncated or next_offset < len(matches) else None,
+            "truncated": truncated,
+        }
+
     def entries(self, *, limit: int = 5000) -> dict[str, Any]:
         entries: list[dict[str, Any]] = []
         truncated = False
@@ -106,6 +257,7 @@ class Workspace:
                         "kind": "file",
                         "size": size,
                         "editable": size <= self.max_file_bytes,
+                        "notebook": file_path.suffix.lower() == ".ipynb",
                     }
                 )
                 if len(entries) >= limit:

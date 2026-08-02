@@ -50,6 +50,10 @@ jobs:
       - run: npm run build --prefix ui/frontend
       - run: node --check src/research_assistant/ui/static/terminal-extension.js
       - run: node --check src/research_assistant/ui/static/system-monitor-extension.js
+      - run: node --check src/research_assistant/ui/static/monaco-global.js
+      - run: node --check src/research_assistant/ui/static/explorer-plus.js
+      - run: node --check src/research_assistant/ui/static/component-search.js
+      - run: node --check src/research_assistant/ui/static/notebook-extension.js
       - name: Verify generated UI assets are committed
         run: |
           git status --short --untracked-files=all -- src/research_assistant/ui/static
@@ -75,12 +79,19 @@ jobs:
               "research_assistant/ui/static/terminal-extension.js",
               "research_assistant/ui/static/terminal-runtime.js",
               "research_assistant/ui/static/system-monitor-extension.js",
+              "research_assistant/ui/static/monaco-global.js",
+              "research_assistant/ui/static/explorer-plus.js",
+              "research_assistant/ui/static/component-search.js",
+              "research_assistant/ui/static/notebook-extension.js",
               "research_assistant/workbench_ui.py",
               "research_assistant/terminal.py",
               "research_assistant/tmux_terminal.py",
               "research_assistant/terminal_ui.py",
               "research_assistant/system_monitor.py",
               "research_assistant/system_monitor_ui.py",
+              "research_assistant/workspace_browser_ui.py",
+              "research_assistant/notebooks.py",
+              "research_assistant/notebook_ui.py",
               "research_assistant/scientific_artifacts.py",
               "research_assistant/lifecycle.py",
               "research_assistant/analysis_sessions.py",
