@@ -45,6 +45,9 @@ const terminalState = {
   title: null,
   workspace: "",
   defaultShell: "",
+  persistent: false,
+  persistenceBackend: "process",
+  persistenceMessage: "",
   sessions: [],
   activeId: null,
   client: null,
@@ -134,7 +137,7 @@ function renderTerminalTabs() {
     const tab = terminalElement("div", {
       class: `raTerminalTab ${session.session_id === terminalState.activeId ? "active" : ""} ${session.state === "running" ? "" : "exited"}`,
       onclick: () => activateTerminalSession(session.session_id),
-      title: `${session.shell}\n${session.cwd}`,
+      title: `${session.shell}\n${session.cwd}\n${session.persistent ? "Persistent tmux session" : "Backend-owned session"}`,
     }, [label, close]);
     tabs.append(tab);
   }
@@ -144,6 +147,9 @@ async function refreshTerminalSessions({ attach = false } = {}) {
   const payload = await terminalApi("/api/terminals");
   terminalState.workspace = payload.workspace || "";
   terminalState.defaultShell = payload.default_shell || "";
+  terminalState.persistent = Boolean(payload.persistent);
+  terminalState.persistenceBackend = payload.backend || "process";
+  terminalState.persistenceMessage = payload.persistence_message || "";
   terminalState.sessions = payload.sessions || [];
   if (terminalState.cwd && !terminalState.cwd.value) terminalState.cwd.value = terminalState.workspace;
   if (terminalState.shell && !terminalState.shell.value) terminalState.shell.value = terminalState.defaultShell;
@@ -152,6 +158,9 @@ async function refreshTerminalSessions({ attach = false } = {}) {
   }
   renderTerminalTabs();
   if (attach && terminalState.activeId) await attachTerminalSession(terminalState.activeId);
+  if (!terminalState.activeId && terminalState.persistenceMessage) {
+    setTerminalStatus(terminalState.persistenceMessage);
+  }
   return payload;
 }
 
@@ -190,7 +199,7 @@ async function closeTerminalSession(sessionId) {
   if (terminalState.activeId) await attachTerminalSession(terminalState.activeId);
   else {
     terminalState.host.replaceChildren(terminalElement("div", { class: "raTerminalEmpty", text: "No terminal sessions" }));
-    setTerminalStatus("No terminal sessions");
+    setTerminalStatus(terminalState.persistenceMessage || "No terminal sessions");
   }
 }
 
@@ -307,7 +316,8 @@ async function attachTerminalSession(sessionId) {
     socket.addEventListener("open", () => {
       if (client.disposed || client.socket !== socket) return;
       client.reconnectAttempt = 0;
-      setTerminalStatus(`${session.title} · PID ${session.pid} · ${session.cwd}`);
+      const persistence = session.persistent || terminalState.persistent ? ` · ${terminalState.persistenceBackend}` : " · non-persistent";
+      setTerminalStatus(`${session.title} · PID ${session.pid ?? "—"} · ${session.cwd}${persistence}`);
       requestAnimationFrame(() => { fit(); terminal.focus(); });
     });
     socket.addEventListener("message", async (event) => {
