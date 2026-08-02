@@ -80,3 +80,10 @@ def test_workspace_browser_routes_and_extensions(tmp_path: Path) -> None:
         search = client.get("/api/workspace/search", params={"query": "model"})
         assert search.status_code == 200
         assert search.json()["entries"][0]["path"] == "src/model.py"
+
+        created = client.post(
+            "/api/notebooks/file",
+            json={"path": "notebooks/reports/analysis.ipynb", "kernel_name": "python3"},
+        )
+        assert created.status_code == 201
+        assert (tmp_path / "notebooks" / "reports" / "analysis.ipynb").is_file()
