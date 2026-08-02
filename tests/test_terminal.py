@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from pathlib import Path
 
@@ -8,11 +9,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from research_assistant.terminal import TerminalError, TerminalSessionManager
+from research_assistant.tmux_terminal import TmuxTerminalSessionManager
 from research_assistant.ui.server import create_app
 
 
 def _wait_for_output(
-    manager: TerminalSessionManager,
+    manager,
     session_id: str,
     needle: bytes,
     timeout: float = 5.0,
@@ -63,6 +65,51 @@ def test_terminal_rejects_missing_shell(tmp_path: Path) -> None:
         manager.create(shell="/definitely/missing/ra-shell")
 
 
+def test_tmux_terminal_survives_manager_restart(tmp_path: Path) -> None:
+    tmux = shutil.which("tmux")
+    if tmux is None:
+        pytest.skip("tmux is not installed")
+
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    first = TmuxTerminalSessionManager(tmp_path, tmux_executable=tmux)
+    session = first.create(shell="/bin/sh", cols=90, rows=26)
+    session_id = session["session_id"]
+    second = None
+
+    try:
+        first.write(
+            session_id,
+            b"export RA_PERSISTED=alive; cd nested; printf 'before-restart\\n'\n",
+        )
+        _wait_for_output(first, session_id, b"before-restart")
+        first.shutdown()
+
+        second = TmuxTerminalSessionManager(tmp_path, tmux_executable=tmux)
+        restored = {item["session_id"]: item for item in second.list()}
+        assert session_id in restored
+        assert restored[session_id]["persistent"] is True
+        assert restored[session_id]["backend"] == "tmux"
+
+        second.write(
+            session_id,
+            b"printf 'after-restart:%s:%s\\n' \"$RA_PERSISTED\" \"$PWD\"\n",
+        )
+        output = _wait_for_output(second, session_id, b"after-restart:alive:")
+        assert str(nested).encode() in output
+    finally:
+        if second is not None:
+            try:
+                second.remove(session_id)
+            except TerminalError:
+                second.shutdown()
+        else:
+            try:
+                first.remove(session_id)
+            except TerminalError:
+                first.shutdown()
+
+
 def test_terminal_ui_rest_and_websocket_round_trip(tmp_path: Path) -> None:
     app = create_app(tmp_path)
     assert hasattr(app.state, "terminal_manager")
@@ -73,6 +120,12 @@ def test_terminal_ui_rest_and_websocket_round_trip(tmp_path: Path) -> None:
         assert index.status_code == 200
         assert "/api/extensions/terminal.js" in index.text
         assert "connect-src 'self' ws: wss:" in index.headers["content-security-policy"]
+
+        terminal_catalog = client.get("/api/terminals")
+        assert terminal_catalog.status_code == 200
+        if shutil.which("tmux") is not None:
+            assert terminal_catalog.json()["persistent"] is True
+            assert terminal_catalog.json()["backend"] == "tmux"
 
         created = client.post(
             "/api/terminals",
