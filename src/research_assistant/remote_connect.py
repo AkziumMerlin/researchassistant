@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import shlex
 import shutil
 import socket
@@ -210,10 +211,12 @@ def _python_invocation(spec: RemoteConnectSpec, arguments: list[str]) -> str:
 
 def build_remote_ui_command(spec: RemoteConnectSpec, remote_port: int) -> str:
     spec.validate()
+    # Resolve the user-supplied path once with `cd`, then pass the current directory
+    # to Python. Passing a relative path again after `cd` would resolve it twice.
     arguments = [
         "-c",
         _REMOTE_SERVER_CODE,
-        spec.workspace,
+        ".",
         str(remote_port),
         *spec.plugins,
     ]
@@ -251,6 +254,11 @@ def build_ssh_argv(
     return argv
 
 
+_EXPECTED_FORWARD_REFUSAL = re.compile(
+    r"^channel \d+: open failed: connect failed: Connection refused\s*$"
+)
+
+
 class _RemoteOutput:
     def __init__(self, stream: TextIO) -> None:
         self.stream = stream
@@ -268,6 +276,8 @@ class _RemoteOutput:
 
     def _pump(self) -> None:
         for line in self.stream:
+            if _EXPECTED_FORWARD_REFUSAL.fullmatch(line.rstrip("\n")):
+                continue
             self.lines.append(line)
             print(f"[remote] {line}", end="", file=sys.stderr, flush=True)
 

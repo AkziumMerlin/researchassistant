@@ -26,6 +26,10 @@ ra connect gpu-server \
 5. opens the resulting local URL in the local browser;
 6. reconnects with bounded backoff after a transient SSH failure.
 
+Workspace paths may be absolute or relative. Relative paths are resolved exactly once from the SSH
+login directory. For example, `--workspace KNO-paper/` resolves to `$HOME/KNO-paper` for a normal
+home-directory SSH login.
+
 Use an explicit interpreter instead of Conda when needed:
 
 ```bash
@@ -40,8 +44,26 @@ The selected remote environment must contain ResearchAssistant and the optional 
 python -m pip install -e '.[ui]'
 ```
 
-Closing `ra connect` stops only the temporary UI server and SSH connection. Detached schedulers and
-workers started from the UI continue running and are rediscovered after reconnecting.
+The UI extra installs Uvicorn's WebSocket transport, which is required by the browser terminal.
+Existing environments created with an older UI extra can be repaired with:
+
+```bash
+python -m pip install 'uvicorn[standard]'
+```
+
+For terminal tabs to survive `ra connect` reconnects and remote UI-backend restarts, install tmux on
+the server. A Conda installation can be kept inside the selected environment:
+
+```bash
+conda install -n KNO -c conda-forge tmux
+```
+
+ResearchAssistant creates a dedicated tmux server for each resolved workspace. It does not reuse or
+modify ordinary user tmux sessions. New UI backends rediscover the persistent tabs automatically.
+Closing a terminal tab explicitly terminates its corresponding tmux session.
+
+Closing `ra connect` stops only the temporary UI server and SSH connection. Detached schedulers,
+workers, and tmux-backed terminal sessions continue running and are rediscovered after reconnecting.
 
 ## Profiles
 

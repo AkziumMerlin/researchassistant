@@ -15,6 +15,7 @@ jobs:
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y tmux
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -47,6 +48,7 @@ jobs:
           python-version: "3.12"
       - run: npm ci --prefix ui/frontend
       - run: npm run build --prefix ui/frontend
+      - run: node --check src/research_assistant/ui/static/terminal-extension.js
       - run: node --check src/research_assistant/ui/static/system-monitor-extension.js
       - name: Verify generated UI assets are committed
         run: |
@@ -75,6 +77,7 @@ jobs:
               "research_assistant/ui/static/system-monitor-extension.js",
               "research_assistant/workbench_ui.py",
               "research_assistant/terminal.py",
+              "research_assistant/tmux_terminal.py",
               "research_assistant/terminal_ui.py",
               "research_assistant/system_monitor.py",
               "research_assistant/system_monitor_ui.py",
