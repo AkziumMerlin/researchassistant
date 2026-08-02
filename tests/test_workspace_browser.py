@@ -4,7 +4,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from research_assistant.ui.server import create_app
+import research_assistant.cli_workbench  # noqa: F401
+from research_assistant.ui import server
 from research_assistant.ui.workspace import Workspace
 
 
@@ -48,7 +49,7 @@ def test_workspace_search_traverses_unloaded_directories(tmp_path: Path) -> None
 def test_workspace_browser_routes_and_extensions(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "model.py").write_text("class Model: pass\n", encoding="utf-8")
-    app = create_app(tmp_path)
+    app = server.create_app(tmp_path)
 
     with TestClient(app) as client:
         index = client.get("/")
