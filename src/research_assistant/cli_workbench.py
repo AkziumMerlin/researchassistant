@@ -475,6 +475,23 @@ def dev_mkdir(path: str, workspace: Annotated[Path, typer.Option("--workspace")]
 
 
 if importlib.util.find_spec("fastapi") is not None:
+    from research_assistant.notebook_ui import _register as register_notebook_ui
+    from research_assistant.ui import server
     from research_assistant.workbench_ui import install as install_workbench_ui
+    from research_assistant.workspace_browser_ui import (
+        _register as register_workspace_browser_ui,
+    )
 
     install_workbench_ui()
+    original_create_app = server.create_app
+
+    def create_app(root, plugins=None, *, ssh_mode=None):
+        app = original_create_app(root, plugins, ssh_mode=ssh_mode)
+        paths = {getattr(route, "path", None) for route in app.routes}
+        if "/api/workspace/entries" not in paths:
+            register_workspace_browser_ui(app)
+        if not hasattr(app.state, "notebook_kernels"):
+            register_notebook_ui(app)
+        return app
+
+    server.create_app = create_app
