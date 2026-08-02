@@ -17,7 +17,9 @@ def _register(app) -> None:
 
     workspace = app.state.workspace
     static_root = Path(__file__).with_name("ui") / "static"
+    bootstrap_source = "/api/extensions/monaco-global.js"
     scripts = {
+        bootstrap_source: static_root / "monaco-global.js",
         "/api/extensions/explorer-plus.js": static_root / "explorer-plus.js",
         "/api/extensions/component-search.js": static_root / "component-search.js",
     }
@@ -34,10 +36,14 @@ def _register(app) -> None:
         async for chunk in response.body_iterator:
             body += chunk
         html = body.decode("utf-8")
+        if bootstrap_source not in html:
+            bootstrap_tag = f'  <script src="{bootstrap_source}"></script>\n  '
+            html = html.replace('<script type="module"', bootstrap_tag + '<script type="module"', 1)
         additions = []
         for source in scripts:
-            if source not in html:
-                additions.append(f'  <script type="module" src="{source}"></script>')
+            if source == bootstrap_source or source in html:
+                continue
+            additions.append(f'  <script type="module" src="{source}"></script>')
         if additions:
             html = html.replace("</head>", "\n".join(additions) + "\n  </head>")
         headers = {
