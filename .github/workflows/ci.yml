@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   refresh-feature-assets:
-    if: github.event_name == 'push' && github.ref_name == 'feature/explorer-search-notebooks'
+    if: github.event_name == 'pull_request' || github.ref_name == 'feature/explorer-search-notebooks'
     permissions:
       contents: write
     runs-on: ubuntu-latest
