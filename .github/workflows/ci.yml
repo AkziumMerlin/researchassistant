@@ -9,10 +9,7 @@ permissions:
 
 jobs:
   refresh-feature-assets:
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/feature/explorer-search-notebooks' &&
-      !contains(github.event.head_commit.message, '[ui-assets]')
+    if: github.event_name == 'push' && github.ref_name == 'feature/explorer-search-notebooks'
     permissions:
       contents: write
     runs-on: ubuntu-latest
