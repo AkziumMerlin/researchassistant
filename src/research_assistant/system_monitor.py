@@ -235,7 +235,9 @@ class NvidiaSystemProbe:
         except subprocess.TimeoutExpired:
             return "", "nvidia-smi query timed out"
         if completed.returncode != 0:
-            error = completed.stderr.strip() or f"nvidia-smi exited with code {completed.returncode}"
+            error = completed.stderr.strip() or (
+                f"nvidia-smi exited with code {completed.returncode}"
+            )
             return "", error
         return completed.stdout, None
 

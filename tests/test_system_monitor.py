@@ -80,7 +80,7 @@ def test_system_monitor_correlates_gpu_and_researchassistant_runs(tmp_path: Path
     run_dir = tmp_path / "runs" / "study-a" / "run-a"
     run_dir.mkdir(parents=True)
     (run_dir / "launcher.json").write_text(
-        '{"worker_pid": %d, "gpu": {"index": 0, "uuid": "GPU-test"}}\n' % os.getpid(),
+        f'{{"worker_pid": {os.getpid()}, "gpu": {{"index": 0, "uuid": "GPU-test"}}}}\n',
         encoding="utf-8",
     )
     (run_dir / "status.json").write_text(
