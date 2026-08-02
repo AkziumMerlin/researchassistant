@@ -22,12 +22,14 @@ import nbformat
 from jupyter_client import BlockingKernelClient
 from jupyter_client.connect import write_connection_file
 from jupyter_client.kernelspec import KernelSpecManager
+from nbformat.validator import NotebookValidationError
 
 from research_assistant.artifacts import atomic_write_json, utc_now
 from research_assistant.errors import ResearchAssistantError
-from research_assistant.ui.workspace import Workspace, WorkspaceConflict, WorkspaceError
+from research_assistant.ui.workspace import Workspace, WorkspaceConflict
 
 MAX_NOTEBOOK_BYTES = 64 * 1024 * 1024
+MAX_CELL_BYTES = 4 * 1024 * 1024
 Subscriber = tuple[asyncio.AbstractEventLoop, asyncio.Queue[dict[str, Any] | None]]
 
 
@@ -144,7 +146,7 @@ class NotebookStore:
             nbformat.validate(notebook)
             text = nbformat.writes(notebook, version=4) + "\n"
             data = text.encode("utf-8")
-        except (AttributeError, TypeError, ValueError, nbformat.ValidationError) as exc:
+        except (AttributeError, TypeError, ValueError, NotebookValidationError) as exc:
             raise NotebookError(f"invalid notebook document: {exc}") from exc
         if len(data) > self.max_bytes:
             raise NotebookError(
@@ -215,6 +217,7 @@ class NotebookKernelSession:
     connection_file: Path
     created_at: str
     log_path: Path
+    event_path: Path
     client: BlockingKernelClient | None = field(default=None, repr=False)
     state: str = "starting"
     execution_count: int | None = None
@@ -245,9 +248,15 @@ class NotebookKernelSession:
 
     def broadcast(self, event: dict[str, Any]) -> None:
         safe = _json_safe(event)
+        line = json.dumps(safe, ensure_ascii=False, separators=(",", ":")) + "\n"
         with self.lock:
             self.recent_events.append(safe)
             subscribers = list(self.subscribers.values())
+            try:
+                with self.event_path.open("a", encoding="utf-8") as stream:
+                    stream.write(line)
+            except OSError:
+                pass
         for loop, target in subscribers:
             try:
                 loop.call_soon_threadsafe(_enqueue, target, safe)
@@ -285,7 +294,10 @@ class NotebookKernelManager:
         self._prune_dead()
         with self._lock:
             sessions = list(self._sessions.values())
-        return sorted((session.metadata() for session in sessions), key=lambda item: item["created_at"])
+        return sorted(
+            (session.metadata() for session in sessions),
+            key=lambda item: item["created_at"],
+        )
 
     def require(self, kernel_id: str) -> NotebookKernelSession:
         with self._lock:
@@ -305,7 +317,9 @@ class NotebookKernelManager:
         kernel_name: str | None = None,
         reuse: bool = True,
     ) -> dict[str, Any]:
-        self.workspace.resolve(notebook_path)
+        resolved_notebook = self.workspace.resolve(notebook_path)
+        if resolved_notebook.suffix.lower() != ".ipynb" or not resolved_notebook.is_file():
+            raise NotebookError(f"notebook does not exist: {notebook_path}")
         requested = kernel_name or "python3"
         if reuse:
             for item in self.list():
@@ -316,7 +330,12 @@ class NotebookKernelManager:
                 ):
                     return item
         kernel_id = uuid.uuid4().hex[:12]
-        session = self._launch(kernel_id, notebook_path, requested)
+        session = self._launch(
+            kernel_id,
+            notebook_path,
+            requested,
+            cwd=resolved_notebook.parent,
+        )
         with self._lock:
             self._sessions[kernel_id] = session
         return session.metadata()
@@ -326,6 +345,8 @@ class NotebookKernelManager:
         kernel_id: str,
         notebook_path: str,
         kernel_name: str,
+        *,
+        cwd: Path,
     ) -> NotebookKernelSession:
         try:
             spec = self.specs.get_kernel_spec(kernel_name)
@@ -352,7 +373,12 @@ class NotebookKernelManager:
 
         argv = [expand(str(value)) for value in spec.argv]
         environment = os.environ.copy()
-        environment.update({str(key): expand(str(value)) for key, value in spec.env.items()})
+        environment.update(
+            {
+                str(key): expand(str(value))
+                for key, value in (spec.env or {}).items()
+            }
+        )
         environment.update(
             {
                 "RA_NOTEBOOK_KERNEL": kernel_id,
@@ -360,11 +386,12 @@ class NotebookKernelManager:
             }
         )
         log_path = session_root / "kernel.log"
+        event_path = session_root / "events.jsonl"
         log_handle = log_path.open("ab", buffering=0)
         try:
             process = subprocess.Popen(
                 argv,
-                cwd=self.workspace.root,
+                cwd=cwd,
                 env=environment,
                 stdin=subprocess.DEVNULL,
                 stdout=log_handle,
@@ -373,7 +400,6 @@ class NotebookKernelManager:
                 close_fds=True,
             )
         except Exception:
-            log_handle.close()
             shutil.rmtree(session_root, ignore_errors=True)
             raise
         finally:
@@ -389,6 +415,7 @@ class NotebookKernelManager:
             connection_file=connection_file,
             created_at=utc_now(),
             log_path=log_path,
+            event_path=event_path,
         )
         self._write_state(session)
         try:
@@ -407,8 +434,10 @@ class NotebookKernelManager:
         client.start_channels()
         if wait:
             client.wait_for_ready(timeout=20)
+            session.state = "idle"
+        else:
+            session.state = "connected"
         session.client = client
-        session.state = "idle"
         session.stop_event.clear()
         listener = threading.Thread(
             target=self._listen,
@@ -487,6 +516,7 @@ class NotebookKernelManager:
                         "parent_id": parent_id,
                     }
                 )
+                self._write_state(session)
             return
 
         event: dict[str, Any] = {
@@ -511,7 +541,7 @@ class NotebookKernelManager:
         code: str,
         store_history: bool = True,
     ) -> dict[str, Any]:
-        if len(code.encode("utf-8")) > 4 * 1024 * 1024:
+        if len(code.encode("utf-8")) > MAX_CELL_BYTES:
             raise NotebookError("notebook cell source is too large")
         session = self.require(kernel_id)
         client = session.client
@@ -527,6 +557,7 @@ class NotebookKernelManager:
         with session.lock:
             session.executions[message_id] = cell_id
             session.state = "busy"
+        self._write_state(session)
         session.broadcast(
             {
                 "type": "execution_started",
@@ -548,8 +579,14 @@ class NotebookKernelManager:
         session = self.require(kernel_id)
         notebook_path = session.notebook_path
         kernel_name = session.kernel_name
+        notebook = self.workspace.resolve(notebook_path)
         self.shutdown(kernel_id, remove_record=True)
-        replacement = self._launch(kernel_id, notebook_path, kernel_name)
+        replacement = self._launch(
+            kernel_id,
+            notebook_path,
+            kernel_name,
+            cwd=notebook.parent,
+        )
         with self._lock:
             self._sessions[kernel_id] = replacement
         return replacement.metadata()
@@ -627,6 +664,7 @@ class NotebookKernelManager:
                 if not _pid_alive(pid) or not connection_file.is_file():
                     shutil.rmtree(state_path.parent, ignore_errors=True)
                     continue
+                event_path = Path(value.get("event_path") or state_path.parent / "events.jsonl")
                 session = NotebookKernelSession(
                     kernel_id=str(value["kernel_id"]),
                     notebook_path=str(value["notebook_path"]),
@@ -637,11 +675,34 @@ class NotebookKernelManager:
                     connection_file=connection_file,
                     created_at=str(value.get("created_at") or utc_now()),
                     log_path=Path(value.get("log_path") or state_path.parent / "kernel.log"),
+                    event_path=event_path,
+                    execution_count=value.get("execution_count"),
+                    executions={
+                        str(key): str(item)
+                        for key, item in (value.get("executions") or {}).items()
+                    },
                 )
-                self._connect(session, wait=True)
+                self._load_events(session)
+                self._connect(session, wait=False)
             except Exception:
                 continue
             self._sessions[session.kernel_id] = session
+
+    @staticmethod
+    def _load_events(session: NotebookKernelSession) -> None:
+        if not session.event_path.is_file():
+            return
+        try:
+            lines = session.event_path.read_text(encoding="utf-8").splitlines()[-2000:]
+        except OSError:
+            return
+        for line in lines:
+            try:
+                value = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(value, dict):
+                session.recent_events.append(value)
 
     def _prune_dead(self) -> None:
         with self._lock:
@@ -660,12 +721,16 @@ class NotebookKernelManager:
     def _write_state(self, session: NotebookKernelSession) -> None:
         state_path = self.root / session.kernel_id / "state.json"
         state_path.parent.mkdir(parents=True, exist_ok=True)
+        with session.lock:
+            executions = dict(session.executions)
         atomic_write_json(
             state_path,
             {
                 **session.metadata(),
                 "connection_file": str(session.connection_file),
                 "log_path": str(session.log_path),
+                "event_path": str(session.event_path),
+                "executions": executions,
             },
         )
 
