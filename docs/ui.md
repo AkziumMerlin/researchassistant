@@ -122,8 +122,9 @@ loss, `ra connect` reconnection, or UI-backend replacement. Explicit shutdown re
 and record; machine restart is not recovered automatically. See `docs/notebooks.md` for kernelspec
 setup and operational details.
 
-Notebook files use optimistic revisions like text files. Outputs and execution counts are
-periodically saved after execution and can also be saved explicitly.
+Notebook files use optimistic revisions like text files. Outputs and execution counts remain in the
+active notebook document and are written into the `.ipynb` file by **Save**. Kernel event replay is
+kept separately so reconnecting the UI does not lose the current execution display before saving.
 
 ## Browser terminal
 
