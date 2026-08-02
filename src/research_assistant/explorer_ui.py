@@ -80,12 +80,22 @@ def _patch_explorer_bundle(source: str) -> tuple[str, bool]:
 
 
 def _inject_extension_scripts(html: str) -> str:
+    monaco_bootstrap = "/api/extensions/monaco-global.js"
+    if monaco_bootstrap not in html:
+        html = html.replace(
+            '<script type="module"',
+            f'<script src="{monaco_bootstrap}"></script>\n    <script type="module"',
+            1,
+        )
     scripts = (
         "/api/extensions/jobs.js",
         "/api/extensions/pipeline.js",
         "/api/extensions/research.js",
         "/api/extensions/architectures.js",
         "/api/extensions/system-monitor.js",
+        "/api/extensions/explorer-plus.js",
+        "/api/extensions/component-search.js",
+        "/api/extensions/notebook.js",
     )
     for source in scripts:
         if source not in html:
