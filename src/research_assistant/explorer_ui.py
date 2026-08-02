@@ -85,6 +85,7 @@ def _inject_extension_scripts(html: str) -> str:
         "/api/extensions/pipeline.js",
         "/api/extensions/research.js",
         "/api/extensions/architectures.js",
+        "/api/extensions/system-monitor.js",
     )
     for source in scripts:
         if source not in html:
