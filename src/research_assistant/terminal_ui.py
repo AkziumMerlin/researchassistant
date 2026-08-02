@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.terminal import TerminalError, TerminalSessionManager
+from research_assistant.tmux_terminal import TmuxTerminalSessionManager
 
 _INSTALLED = False
 
@@ -31,6 +33,16 @@ class TerminalResizeRequest(TerminalRequest):
     rows: int = Field(ge=2, le=300)
 
 
+def _terminal_manager(workspace: Path):
+    tmux_executable = shutil.which("tmux")
+    if tmux_executable is not None:
+        return TmuxTerminalSessionManager(
+            workspace,
+            tmux_executable=tmux_executable,
+        )
+    return TerminalSessionManager(workspace)
+
+
 def _register(app) -> None:
     try:
         from fastapi import Request, WebSocket, WebSocketDisconnect
@@ -42,7 +54,7 @@ def _register(app) -> None:
     globals()["WebSocket"] = WebSocket
 
     workspace = Path(app.state.workspace.root).resolve()
-    manager = TerminalSessionManager(workspace)
+    manager = _terminal_manager(workspace)
     app.state.terminal_manager = manager
     static_root = Path(__file__).with_name("ui") / "static"
     extension_path = static_root / "terminal-extension.js"
@@ -113,10 +125,19 @@ def _register(app) -> None:
 
     @app.get("/api/terminals")
     def terminal_list() -> dict[str, Any]:
+        persistent = bool(getattr(manager, "persistent", False))
+        backend = str(getattr(manager, "persistence_backend", "process"))
         return {
             "workspace": str(workspace),
             "default_shell": manager.default_shell,
             "sessions": manager.list(),
+            "persistent": persistent,
+            "backend": backend,
+            "persistence_message": (
+                "Terminal sessions survive UI and SSH reconnects through tmux."
+                if persistent
+                else "Install tmux on the server to preserve terminals across UI restarts."
+            ),
         }
 
     @app.post("/api/terminals")
