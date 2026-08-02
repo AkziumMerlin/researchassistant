@@ -18,6 +18,9 @@ The monitor combines the useful parts of `htop` and `nvtop` with ResearchAssista
 - `SIGINT`, `SIGTERM`, `SIGKILL`, `SIGHUP`, `SIGSTOP`, and `SIGCONT` actions for processes owned by
   the current user, with an explicit browser confirmation.
 
+Sampling can be paused or refreshed manually. The automatic interval can be set to 1, 2, 5, or 10
+seconds; client-side history is kept for recent CPU, memory, load, disk, network, and GPU samples.
+
 No `RA_TRUSTED_DEV` switch or separate monitor permission mode is used. The UI server remains
 loopback-only. Process signalling is limited to the operating-system user running the server and
 cannot target PID 1 or the ResearchAssistant UI process itself.
