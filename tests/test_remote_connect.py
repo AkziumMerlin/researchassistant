@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from io import StringIO
 from pathlib import Path
+import tomllib
 
 import pytest
 
@@ -118,3 +119,11 @@ def test_remote_output_hides_expected_startup_probe_refusals(capsys) -> None:
     assert "Connection refused" not in captured.err
     assert "actual remote diagnostic" in captured.err
     assert output.tail() == "actual remote diagnostic"
+
+
+def test_ui_extra_installs_uvicorn_websocket_transport() -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    configuration = tomllib.loads((project_root / "pyproject.toml").read_text(encoding="utf-8"))
+    ui_dependencies = configuration["project"]["optional-dependencies"]["ui"]
+
+    assert any(dependency.startswith("uvicorn[standard]") for dependency in ui_dependencies)
