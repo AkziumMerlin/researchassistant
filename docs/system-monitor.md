@@ -46,4 +46,5 @@ ResearchAssistant parent, which covers data-loader workers and subprocesses star
 
 The run index is cached briefly so frequent UI polling does not repeatedly scan artifact metadata.
 Process and log payloads are bounded; the monitor never sends an unbounded process table or full log
-file to the browser.
+file to the browser. Process-detail requests use a PID-specific filtered sample, so they remain
+independent of the global process-table limit on hosts with very large process counts.
