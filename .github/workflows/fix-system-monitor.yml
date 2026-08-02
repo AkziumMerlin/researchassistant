@@ -1,0 +1,49 @@
+name: Fix system monitor lint
+
+on:
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/system-monitor
+      - name: Apply lint fixes
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          monitor = Path("src/research_assistant/system_monitor.py")
+          content = monitor.read_text(encoding="utf-8")
+          old = '            error = completed.stderr.strip() or f"nvidia-smi exited with code {completed.returncode}"\n'
+          new = (
+              '            error = completed.stderr.strip() or (\n'
+              '                f"nvidia-smi exited with code {completed.returncode}"\n'
+              '            )\n'
+          )
+          if old not in content:
+              raise SystemExit("nvidia-smi error line not found")
+          monitor.write_text(content.replace(old, new), encoding="utf-8")
+
+          tests = Path("tests/test_system_monitor.py")
+          content = tests.read_text(encoding="utf-8")
+          old = '        \'{"worker_pid": %d, "gpu": {"index": 0, "uuid": "GPU-test"}}\\n\' % os.getpid(),\n'
+          new = '        f\'{{"worker_pid": {os.getpid()}, "gpu": {{"index": 0, "uuid": "GPU-test"}}}}\\n\',\n'
+          if old not in content:
+              raise SystemExit("launcher fixture line not found")
+          tests.write_text(content.replace(old, new), encoding="utf-8")
+          PY
+      - name: Commit fixes
+        run: |
+          rm .github/workflows/fix-system-monitor.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/research_assistant/system_monitor.py tests/test_system_monitor.py .github/workflows/fix-system-monitor.yml
+          git commit -m "Fix system monitor lint"
+          git push origin HEAD:feature/system-monitor
