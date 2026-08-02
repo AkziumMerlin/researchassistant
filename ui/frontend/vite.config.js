@@ -11,6 +11,7 @@ const runtimeExtensions = [
   "workbench-extension.js",
   "terminal-extension.js",
   "terminal-runtime.js",
+  "system-monitor-extension.js",
   "architecture-extension.js",
   ...Array.from({ length: 8 }, (_, index) =>
     `architecture-v2/part-${String(index).padStart(2, "0")}.txt`,
