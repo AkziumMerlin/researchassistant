@@ -9,6 +9,10 @@ from research_assistant.notebooks import NotebookKernelManager, NotebookStore
 from research_assistant.ui.workspace import Workspace, WorkspaceConflict
 
 
+def _source_text(value: str | list[str]) -> str:
+    return "".join(value) if isinstance(value, list) else value
+
+
 def test_notebook_store_round_trip_and_conflict(tmp_path: Path) -> None:
     (tmp_path / "notebooks").mkdir()
     store = NotebookStore(Workspace(tmp_path))
@@ -27,7 +31,7 @@ def test_notebook_store_round_trip_and_conflict(tmp_path: Path) -> None:
     )
     loaded = store.read("notebooks/analysis.ipynb")
     assert loaded["revision"] == saved["revision"]
-    assert loaded["notebook"]["cells"][0]["source"] == "answer = 42"
+    assert _source_text(loaded["notebook"]["cells"][0]["source"]) == "answer = 42"
 
     with pytest.raises(WorkspaceConflict, match="changed outside"):
         store.write(
