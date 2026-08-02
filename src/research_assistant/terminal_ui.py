@@ -206,8 +206,11 @@ def _register(app) -> None:
                 task.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
             for task in done:
-                task.result()
-        except (WebSocketDisconnect, TerminalError, RuntimeError):
+                try:
+                    task.result()
+                except asyncio.CancelledError:
+                    pass
+        except (asyncio.CancelledError, WebSocketDisconnect, TerminalError, RuntimeError):
             pass
         finally:
             manager.unsubscribe(session_id, token)
