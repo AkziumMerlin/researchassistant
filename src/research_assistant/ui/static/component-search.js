@@ -28,6 +28,7 @@ async function enhanceModelsDialog(dialog) {
   const sourceList = dialog.querySelector("#ra-palette-list");
   const palette = input?.closest(".ra-palette");
   if (!input || !sourceList || !palette) return;
+  palette.classList.add("raComponentSearchPalette");
 
   const bootstrap = await componentApi("/api/bootstrap");
   const specs = (bootstrap.components || []).filter((item) => item.catalog === "graph-node");
@@ -330,11 +331,15 @@ function installComponentSearchStyles() {
   const style = document.createElement("style");
   style.id = "ra-component-search-styles";
   style.textContent = `
+    .ra-models-main{min-height:0}
+    .ra-models-work{min-height:0;overflow:hidden}
+    .raComponentSearchPalette{display:grid;grid-template-rows:auto auto minmax(0,1fr);min-height:0;max-height:100%;overflow:hidden!important}
+    .raComponentSearchPalette #ra-palette-list,.raComponentSearchResults{min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;padding-right:4px;padding-bottom:10px}
     .raComponentSearchControls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:5px;align-items:center;margin:6px 0 8px}
     .raComponentSearchSelect{min-width:0;background:#0d141c;color:#d7e2ec;border:1px solid #39475a;border-radius:5px;padding:5px;font-size:11px}
     .raComponentSearchShortcut{border:1px solid #43536a;border-radius:5px;background:#182331;color:#d7e2ec;padding:5px 7px;font-size:10px;cursor:pointer}
     .raComponentSearchStatus{grid-column:1/-1;color:#8292a5;font-size:10px;text-align:right}
-    .raComponentSearchResults{display:grid;gap:4px;padding-bottom:10px}
+    .raComponentSearchResults{display:grid;align-content:start;gap:4px}
     .raComponentSearchResult{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 8px;width:100%;text-align:left;border:1px solid #303e51;border-radius:6px;background:#121b26;color:#e1e8f0;padding:7px;cursor:pointer}
     .raComponentSearchResult:hover,.raComponentSearchResult.selected{border-color:#70a7ff;background:#1b2a3c}
     .raComponentSearchResult strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
