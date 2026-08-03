@@ -46,7 +46,10 @@ def browser_e2e_diagnostics(monkeypatch: pytest.MonkeyPatch):
 
         def report_response(response) -> None:
             resource_type = response.request.resource_type
-            if resource_type not in {"document", "script"} and "/api/extensions/" not in response.url:
+            if (
+                resource_type not in {"document", "script"}
+                and "/api/extensions/" not in response.url
+            ):
                 return
             print(
                 f"[browser response:{resource_type}] {response.status} {response.url} "
