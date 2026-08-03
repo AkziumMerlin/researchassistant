@@ -55,9 +55,11 @@ def test_workspace_browser_routes_and_extensions(tmp_path: Path) -> None:
         index = client.get("/")
         assert index.status_code == 200
         monaco_source = "/api/extensions/monaco-global.js"
+        explorer_source = "/api/extensions/explorer-plus.js"
+        component_search_source = "/api/extensions/component-search.js"
         assert monaco_source in index.text
-        assert "/api/extensions/explorer-plus.js" in index.text
-        assert "/api/extensions/component-search.js" in index.text
+        assert explorer_source in index.text
+        assert component_search_source in index.text
         assert "/api/extensions/notebook.js" in index.text
         assert index.text.index(monaco_source) < index.text.index('<script type="module"')
 
@@ -65,6 +67,23 @@ def test_workspace_browser_routes_and_extensions(tmp_path: Path) -> None:
         assert monaco_script.status_code == 200
         assert "globalAPI" in monaco_script.text
         assert "__RA_WORKBENCH__" in monaco_script.text
+
+        explorer_script = client.get(explorer_source)
+        assert explorer_script.status_code == 200
+        assert (
+            ".raExplorerRow.directory{grid-template-columns:18px 18px minmax(0,1fr)"
+            in explorer_script.text
+        )
+        assert ".raExplorerName{min-width:0;" in explorer_script.text
+
+        component_search_script = client.get(component_search_source)
+        assert component_search_script.status_code == 200
+        assert 'palette.classList.add("raComponentSearchPalette")' in component_search_script.text
+        assert ".ra-models-main{min-height:0}" in component_search_script.text
+        assert ".ra-models-work{min-height:0;overflow:hidden}" in component_search_script.text
+        assert "overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable" in (
+            component_search_script.text
+        )
 
         root = client.get("/api/workspace/entries", params={"path": "", "limit": 10})
         assert root.status_code == 200
