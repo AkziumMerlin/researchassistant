@@ -434,16 +434,8 @@ def test_research_workspace_browser_flow(tmp_path: Path) -> None:
                 has_text="study-a / run-a",
             ).first.wait_for()
             page.get_by_role("button", name="Layout", exact=True).wait_for()
-            workspace_dialog.get_by_role(
-                "button",
-                name="Artifacts",
-                exact=True,
-            ).click()
-            workspace_dialog.get_by_role(
-                "button",
-                name="Assistant",
-                exact=True,
-            ).click()
+            workspace_dialog.locator('[data-rw-tab="artifacts"]').click()
+            workspace_dialog.locator('[data-rw-tab="assistant"]').click()
             workspace_dialog.get_by_role(
                 "heading",
                 name="Typed research planner",
