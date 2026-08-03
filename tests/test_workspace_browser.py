@@ -81,9 +81,10 @@ def test_workspace_browser_routes_and_extensions(tmp_path: Path) -> None:
         assert 'palette.classList.add("raComponentSearchPalette")' in component_search_script.text
         assert ".ra-models-main{min-height:0}" in component_search_script.text
         assert ".ra-models-work{min-height:0;overflow:hidden}" in component_search_script.text
-        assert "overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable" in (
+        assert "overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable" in (
             component_search_script.text
         )
+        assert "::-webkit-scrollbar-thumb" in component_search_script.text
 
         root = client.get("/api/workspace/entries", params={"path": "", "limit": 10})
         assert root.status_code == 200
