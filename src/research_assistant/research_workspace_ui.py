@@ -66,7 +66,7 @@ def register_research_workspace(app) -> None:
     layout_script = static_root / "layout-manager.js"
     workspace_script = static_root / "research-workspace.js"
     context_store = NotebookContextStore(workspace)
-    assistant = AssistantEngine(str(workspace))
+    assistant = AssistantEngine(str(workspace), registry=app.state.registry)
 
     if not isinstance(app.state.launch_manager, DurableLaunchManager):
         app.state.launch_manager = DurableLaunchManager(
@@ -130,7 +130,12 @@ def register_research_workspace(app) -> None:
     @app.get("/api/workspace-v2/capabilities")
     def capabilities() -> dict[str, Any]:
         matrix = capability_matrix()
-        matrix["plugins"] = list(getattr(app.state.registry, "plugin_diagnostics", []))
+        matrix["plugins"] = list(
+            getattr(app.state.registry, "plugin_diagnostics", [])
+        )
+        matrix["assistant_providers"] = [
+            spec.name for spec in app.state.registry.list("assistant")
+        ]
         matrix["migrations"] = migration_catalog()
         return matrix
 
@@ -149,10 +154,6 @@ def register_research_workspace(app) -> None:
             limit=limit,
         )
 
-    @app.get("/api/workspace-v2/runs/{run_id}")
-    def run_lineage(run_id: str, artifact_root: str = Query(default="runs")) -> dict[str, Any]:
-        return RunWorkspace(workspace, artifact_root).lineage_for_run(run_id)
-
     @app.post("/api/workspace-v2/runs/aggregate")
     def aggregate_runs(payload: RunAggregateRequest) -> dict[str, Any]:
         return RunWorkspace(workspace, payload.artifact_root).aggregate(
@@ -162,25 +163,42 @@ def register_research_workspace(app) -> None:
             group_by=payload.group_by,
         )
 
+    @app.get("/api/workspace-v2/runs/{run_id}")
+    def run_lineage(
+        run_id: str,
+        artifact_root: str = Query(default="runs"),
+    ) -> dict[str, Any]:
+        return RunWorkspace(workspace, artifact_root).lineage_for_run(run_id)
+
     @app.get("/api/workspace-v2/artifacts/{artifact_id}/lineage")
-    def artifact_lineage(artifact_id: str, artifact_root: str = Query(default="runs")) -> dict[str, Any]:
+    def artifact_lineage(
+        artifact_id: str,
+        artifact_root: str = Query(default="runs"),
+    ) -> dict[str, Any]:
         catalog = ScientificArtifactCatalog(workspace)
         artifact = catalog.require(artifact_id)
         run_id = artifact.get("run_id")
         if not run_id:
             parts = Path(str(artifact.get("path", ""))).parts
-            if len(parts) >= 3 and parts[0] == artifact_root:
-                run_id = parts[2]
+            root_parts = Path(artifact_root).parts
+            if len(parts) >= len(root_parts) + 2 and parts[: len(root_parts)] == root_parts:
+                run_id = parts[len(root_parts) + 1]
         lineage = (
             RunWorkspace(workspace, artifact_root).lineage_for_run(str(run_id))
             if run_id
             else None
         )
         related = catalog.list(run_id=str(run_id), limit=200) if run_id else []
-        return {"artifact": artifact, "run_lineage": lineage, "related_artifacts": related}
+        return {
+            "artifact": artifact,
+            "run_lineage": lineage,
+            "related_artifacts": related,
+        }
 
     @app.get("/api/workspace-v2/notebook-contexts")
-    def notebook_contexts(limit: int = Query(default=200, ge=1, le=2000)) -> dict[str, Any]:
+    def notebook_contexts(
+        limit: int = Query(default=200, ge=1, le=2000),
+    ) -> dict[str, Any]:
         return {"contexts": context_store.list(limit=limit)}
 
     @app.post("/api/workspace-v2/notebook-contexts", status_code=201)
@@ -201,7 +219,12 @@ def register_research_workspace(app) -> None:
     @app.get("/api/workspace-v2/plugins")
     def plugins() -> dict[str, Any]:
         return {
-            "diagnostics": list(getattr(app.state.registry, "plugin_diagnostics", [])),
+            "diagnostics": list(
+                getattr(app.state.registry, "plugin_diagnostics", [])
+            ),
+            "assistant_providers": [
+                spec.name for spec in app.state.registry.list("assistant")
+            ],
             "migrations": migration_catalog(),
         }
 
@@ -231,5 +254,8 @@ def register_research_workspace(app) -> None:
         return app.state.launch_manager.retry(launch_id)
 
     @app.post("/api/workspace-v2/launches/{launch_id}/cancel")
-    def cancel_launch(launch_id: str, payload: CancelLaunchRequest) -> dict[str, Any]:
+    def cancel_launch(
+        launch_id: str,
+        payload: CancelLaunchRequest,
+    ) -> dict[str, Any]:
         return app.state.launch_manager.cancel(launch_id, force=payload.force)
