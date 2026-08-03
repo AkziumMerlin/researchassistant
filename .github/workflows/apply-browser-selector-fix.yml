@@ -1,0 +1,40 @@
+name: Apply browser selector fix
+
+on:
+  push:
+    branches: [feature/research-workspace-v2]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/research-workspace-v2
+      - name: Scope the Research workspace selector and remove this workflow
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("tests/test_workspace_v2.py")
+          source = path.read_text(encoding="utf-8")
+          old = '            page.get_by_text("study-a / run-a").wait_for()\n'
+          new = (
+              '            page.locator(\n'
+              '                "#ra-research-workspace .rwRunIdentity strong",\n'
+              '                has_text="study-a / run-a",\n'
+              '            ).first.wait_for()\n'
+          )
+          if old not in source:
+              raise SystemExit("browser selector source line was not found")
+          path.write_text(source.replace(old, new), encoding="utf-8")
+          PY
+          rm .github/workflows/apply-browser-selector-fix.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/test_workspace_v2.py .github/workflows/apply-browser-selector-fix.yml
+          git commit -m "Scope Research workspace browser selector"
+          git push origin HEAD:feature/research-workspace-v2
