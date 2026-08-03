@@ -21,6 +21,7 @@ from research_assistant.ui.launches import (
 
 _ACTIVE_STATES = {"queued", "running", "adopting", "cancelling", "orphaned"}
 _TERMINAL_RUN_STATES = {"completed", "failed", "interrupted", "cancelled", "preempted"}
+_RECOVERABLE_STATES = {"orphaned", "failed", "cancelled", "interrupted"}
 
 
 def _parse_timestamp(value: object) -> datetime | None:
@@ -118,7 +119,9 @@ class DurableLaunchManager(LaunchManager):
         if states and all(value == "completed" for value in states):
             reconciled = "completed"
         elif states and all(value in _TERMINAL_RUN_STATES for value in states):
-            reconciled = "failed" if any(value != "completed" for value in states) else "completed"
+            reconciled = (
+                "failed" if any(value != "completed" for value in states) else "completed"
+            )
         elif worker_alive:
             reconciled = "orphaned"
         else:
@@ -153,7 +156,13 @@ class DurableLaunchManager(LaunchManager):
                 reconciled.append(launch_dir.name)
         return {"reconciled": reconciled}
 
-    def _record(self, launch_dir: Path, *, include_detail: bool, selected_run_id: str | None = None) -> dict[str, Any]:
+    def _record(
+        self,
+        launch_dir: Path,
+        *,
+        include_detail: bool,
+        selected_run_id: str | None = None,
+    ) -> dict[str, Any]:
         self._reconcile_launch_dir(launch_dir)
         record = super()._record(
             launch_dir,
@@ -169,7 +178,7 @@ class DurableLaunchManager(LaunchManager):
                 "lease": lease,
                 "heartbeat_age_seconds": age,
                 "heartbeat_fresh": age is not None and age <= 15,
-                "recoverable": state in {"orphaned", "failed", "cancelled"},
+                "recoverable": state in _RECOVERABLE_STATES,
                 "cancellable": state in {"queued", "running", "adopting", "orphaned"},
             }
         )
@@ -183,6 +192,11 @@ class DurableLaunchManager(LaunchManager):
         current = super()._record(launch_dir, include_detail=True)
         if current.get("scheduler_alive"):
             raise UiLaunchError(f"launch {launch_id} already has a live scheduler")
+        state = str(current.get("state", "unknown"))
+        if state not in _RECOVERABLE_STATES:
+            raise UiLaunchError(
+                f"launch {launch_id} cannot be adopted from state {state!r}"
+            )
 
         lock_path = launch_dir / "adoption.lock"
         try:
@@ -193,6 +207,7 @@ class DurableLaunchManager(LaunchManager):
             stream.write(json.dumps({"launch_id": launch_id, "created_at": _utc_now()}))
             stream.write("\n")
 
+        (launch_dir / "control.json").unlink(missing_ok=True)
         request = _read_json(launch_dir / "request.json")
         request["resume"] = True
         request["adopted_at"] = _utc_now()
