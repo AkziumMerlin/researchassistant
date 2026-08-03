@@ -17,6 +17,8 @@ const runtimeExtensions = [
   "explorer-plus.js",
   "component-search.js",
   "notebook-extension.js",
+  "layout-manager.js",
+  "research-workspace.js",
   ...Array.from({ length: 8 }, (_, index) =>
     `architecture-v2/part-${String(index).padStart(2, "0")}.txt`,
   ),
