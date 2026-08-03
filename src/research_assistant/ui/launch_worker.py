@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
+import threading
 import traceback
 from pathlib import Path
 from typing import Any
@@ -29,6 +31,41 @@ def _load_request(launch_dir: Path) -> dict[str, Any]:
     return payload
 
 
+class _LeaseHeartbeat:
+    def __init__(self, launch_dir: Path, request: dict[str, Any]) -> None:
+        self.launch_dir = launch_dir
+        self.request = request
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._run, name="ra-launch-heartbeat", daemon=True)
+
+    def start(self) -> None:
+        self._write()
+        self.thread.start()
+
+    def _write(self) -> None:
+        atomic_write_json(
+            self.launch_dir / "lease.json",
+            {
+                "schema_version": 1,
+                "launch_id": str(self.request.get("launch_id", self.launch_dir.name)),
+                "scheduler_pid": os.getpid(),
+                "generation": int(self.request.get("adoption_generation", 0)),
+                "mode": "scheduler",
+                "heartbeat_at": _utc_now(),
+            },
+        )
+
+    def _run(self) -> None:
+        while not self.stop_event.wait(2.0):
+            self._write()
+
+    def close(self) -> None:
+        self.stop_event.set()
+        if self.thread.is_alive():
+            self.thread.join(timeout=3.0)
+        (self.launch_dir / "lease.json").unlink(missing_ok=True)
+
+
 def run(launch_dir: Path) -> int:
     launch_dir = launch_dir.resolve()
     request = _load_request(launch_dir)
@@ -36,15 +73,18 @@ def run(launch_dir: Path) -> int:
     created_at = request.get("created_at")
     state_path = launch_dir / "state.json"
     started_at = _utc_now()
+    heartbeat = _LeaseHeartbeat(launch_dir, request)
+    heartbeat.start()
     atomic_write_json(
         state_path,
         {
-            "schema_version": 1,
+            "schema_version": 2,
             "launch_id": launch_id,
             "state": "running",
             "created_at": created_at,
             "started_at": started_at,
             **({"adopted_at": request.get("adopted_at")} if request.get("adopted_at") else {}),
+            "adoption_generation": int(request.get("adoption_generation", 0)),
         },
     )
     try:
@@ -92,7 +132,7 @@ def run(launch_dir: Path) -> int:
         atomic_write_json(
             state_path,
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "launch_id": launch_id,
                 "state": state,
                 "created_at": created_at,
@@ -102,6 +142,7 @@ def run(launch_dir: Path) -> int:
                 "results": results,
                 **({"error": f"{len(failed)} run(s) failed"} if failed else {}),
                 **({"adopted_at": request.get("adopted_at")} if request.get("adopted_at") else {}),
+                "adoption_generation": int(request.get("adoption_generation", 0)),
             },
         )
         (launch_dir / "adoption.lock").unlink(missing_ok=True)
@@ -112,7 +153,7 @@ def run(launch_dir: Path) -> int:
         atomic_write_json(
             state_path,
             {
-                "schema_version": 1,
+                "schema_version": 2,
                 "launch_id": launch_id,
                 "state": "failed",
                 "created_at": created_at,
@@ -120,10 +161,13 @@ def run(launch_dir: Path) -> int:
                 "finished_at": _utc_now(),
                 "exit_code": 1,
                 "error": str(exc),
+                "adoption_generation": int(request.get("adoption_generation", 0)),
             },
         )
         (launch_dir / "adoption.lock").unlink(missing_ok=True)
         return 1
+    finally:
+        heartbeat.close()
 
 
 def main() -> None:
