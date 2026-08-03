@@ -8,6 +8,7 @@ import yaml
 from pydantic import ValidationError
 
 from research_assistant.errors import ConfigError
+from research_assistant.migrations import MigrationReport, migrate_document
 from research_assistant.models import ExperimentConfig
 
 
@@ -120,9 +121,15 @@ def apply_overrides(document: dict[str, Any], overrides: list[str]) -> dict[str,
     return result
 
 
+def migrate_config_document(document: dict[str, Any]) -> tuple[dict[str, Any], MigrationReport]:
+    """Return a current-schema copy and an auditable migration report."""
+    return migrate_document(document, kind="experiment")
+
+
 def parse_config(document: dict[str, Any]) -> ExperimentConfig:
+    migrated, _report = migrate_config_document(document)
     try:
-        return ExperimentConfig.model_validate(document)
+        return ExperimentConfig.model_validate(migrated)
     except ValidationError as exc:
         raise ConfigError(str(exc)) from exc
 
