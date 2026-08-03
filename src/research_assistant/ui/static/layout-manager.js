@@ -4,6 +4,7 @@ const LAYOUT_KEY = "ra.ui.layout.v1";
 if (!globalThis[LAYOUT_MARK]) {
   globalThis[LAYOUT_MARK] = true;
   installLayoutManager();
+  void import("/assets/research-workspace-ready.js").catch((error) => console.error(error));
 }
 
 function readLayoutState() {
@@ -39,10 +40,17 @@ function installLayoutManager() {
       const minimum = Number(options.minimum || 180);
       const maximum = Number(options.maximum || 900);
       const axis = options.axis === "y" ? "y" : "x";
-      const initial = Number(state[id]?.size || options.initial || element.getBoundingClientRect()[axis === "x" ? "width" : "height"] || minimum);
+      const initial = Number(
+        state[id]?.size ||
+          options.initial ||
+          element.getBoundingClientRect()[axis === "x" ? "width" : "height"] ||
+          minimum,
+      );
       const variable = options.variable || `--ra-panel-${id}-size`;
       const apply = (raw, persist = false) => {
-        const size = Math.round(Math.min(maximum, Math.max(minimum, Number(raw) || minimum)));
+        const size = Math.round(
+          Math.min(maximum, Math.max(minimum, Number(raw) || minimum)),
+        );
         document.documentElement.style.setProperty(variable, `${size}px`);
         element.dataset.raPanelSize = String(size);
         if (persist) {
@@ -52,8 +60,19 @@ function installLayoutManager() {
         return size;
       };
       apply(initial);
-      registrations.set(id, { id, element, axis, minimum, maximum, variable, apply });
-      return { setSize: apply, reset: () => apply(options.initial || minimum, true) };
+      registrations.set(id, {
+        id,
+        element,
+        axis,
+        minimum,
+        maximum,
+        variable,
+        apply,
+      });
+      return {
+        setSize: apply,
+        reset: () => apply(options.initial || minimum, true),
+      };
     },
     registerDialog(id, dialog, options = {}) {
       if (!id || !dialog || dialog.dataset.raLayoutDialog === "true") return;
@@ -84,7 +103,9 @@ function installLayoutManager() {
       return structuredClone(state);
     },
     restore(value) {
-      if (!value || typeof value !== "object") throw new Error("Layout snapshot must be an object");
+      if (!value || typeof value !== "object") {
+        throw new Error("Layout snapshot must be an object");
+      }
       for (const key of Object.keys(state)) delete state[key];
       Object.assign(state, structuredClone(value));
       writeLayoutState(state);
@@ -92,8 +113,12 @@ function installLayoutManager() {
     },
     reset() {
       for (const key of Object.keys(state)) delete state[key];
-      try { localStorage.removeItem(LAYOUT_KEY); } catch {}
-      try { localStorage.removeItem("ra.ui.explorerWidth"); } catch {}
+      try {
+        localStorage.removeItem(LAYOUT_KEY);
+      } catch {}
+      try {
+        localStorage.removeItem("ra.ui.explorerWidth");
+      } catch {}
       location.reload();
     },
   };
@@ -107,10 +132,12 @@ function installLayoutManager() {
 
 function observeDialogs(manager) {
   const register = (root = document) => {
-    root.querySelectorAll?.("dialog[id],dialog.ra-models-v2,dialog.wbDialog").forEach((dialog) => {
-      const id = dialog.id || [...dialog.classList].join("-") || "dialog";
-      manager.registerDialog(id, dialog);
-    });
+    root
+      .querySelectorAll?.("dialog[id],dialog.ra-models-v2,dialog.wbDialog")
+      .forEach((dialog) => {
+        const id = dialog.id || [...dialog.classList].join("-") || "dialog";
+        manager.registerDialog(id, dialog);
+      });
   };
   register();
   new MutationObserver((records) => {
