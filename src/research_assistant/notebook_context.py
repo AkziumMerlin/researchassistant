@@ -23,7 +23,8 @@ class NotebookContextStore:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def _context_path(self, context_id: str) -> Path:
-        if not context_id or any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in context_id):
+        allowed = "abcdefghijklmnopqrstuvwxyz0123456789-"
+        if not context_id or any(character not in allowed for character in context_id):
             raise NotebookContextError("invalid notebook context identifier")
         path = (self.root / f"{context_id}.json").resolve()
         if not path.is_relative_to(self.root.resolve()):
@@ -49,15 +50,23 @@ class NotebookContextStore:
         runs = run_workspace.require_runs(selected_runs) if selected_runs else []
         catalog = ScientificArtifactCatalog(self.workspace.root)
         artifacts = [catalog.require(artifact_id) for artifact_id in selected_artifacts]
+        normalized_label = label or "analysis"
         payload_seed = {
             "run_ids": selected_runs,
             "artifact_ids": selected_artifacts,
             "artifact_root": artifact_root,
+            "label": normalized_label,
+            "notebook_path": notebook_path,
+            "kernel_name": kernel_name,
         }
         context_id = hashlib.sha256(
             json.dumps(payload_seed, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()[:16]
-        relative_context_path = self._context_path(context_id).relative_to(self.workspace.root).as_posix()
+        context_path = self._context_path(context_id)
+        if context_path.is_file():
+            return self.require(context_id)
+
+        relative_context_path = context_path.relative_to(self.workspace.root).as_posix()
         payload = {
             "schema_version": 1,
             "context_id": context_id,
@@ -71,15 +80,20 @@ class NotebookContextStore:
             "artifacts": artifacts,
             "context_path": relative_context_path,
             "notebook_path": notebook_path,
+            "kernel_name": kernel_name,
         }
-        atomic_write_json(self._context_path(context_id), payload)
+        atomic_write_json(context_path, payload)
 
-        if notebook_path is not None:
-            self._create_notebook(
-                notebook_path,
-                context_path=relative_context_path,
-                kernel_name=kernel_name,
-            )
+        try:
+            if notebook_path is not None:
+                self._create_notebook(
+                    notebook_path,
+                    context_path=relative_context_path,
+                    kernel_name=kernel_name,
+                )
+        except Exception:
+            context_path.unlink(missing_ok=True)
+            raise
         return payload
 
     def _create_notebook(
@@ -131,7 +145,10 @@ class NotebookContextStore:
                 },
             },
         )
-        destination.write_text(nbformat.writes(notebook, version=4) + "\n", encoding="utf-8")
+        destination.write_text(
+            nbformat.writes(notebook, version=4) + "\n",
+            encoding="utf-8",
+        )
 
     def require(self, context_id: str) -> dict[str, Any]:
         path = self._context_path(context_id)
@@ -140,14 +157,21 @@ class NotebookContextStore:
         except FileNotFoundError as exc:
             raise NotebookContextError(f"unknown notebook context {context_id!r}") from exc
         except (OSError, ValueError, TypeError) as exc:
-            raise NotebookContextError(f"cannot read notebook context {context_id!r}: {exc}") from exc
+            raise NotebookContextError(
+                f"cannot read notebook context {context_id!r}: {exc}"
+            ) from exc
         if not isinstance(value, dict):
             raise NotebookContextError(f"invalid notebook context {context_id!r}")
         return value
 
     def list(self, limit: int = 200) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for path in sorted(self.root.glob("*.json"), reverse=True):
+        paths = sorted(
+            self.root.glob("*.json"),
+            key=lambda path: path.stat().st_mtime_ns,
+            reverse=True,
+        )
+        for path in paths:
             try:
                 value = json.loads(path.read_text(encoding="utf-8"))
             except (OSError, ValueError, TypeError):
