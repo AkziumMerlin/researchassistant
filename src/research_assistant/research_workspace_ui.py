@@ -120,10 +120,18 @@ def register_research_workspace(app) -> None:
     def research_workspace_javascript():
         if not workspace_script.is_file():
             raise ResearchAssistantError("the research workspace asset is missing")
-        response = Response(
-            workspace_script.read_text(encoding="utf-8"),
-            media_type="application/javascript",
+        source = workspace_script.read_text(encoding="utf-8")
+        bootstrap = (
+            "const startResearchWorkspace = () => {\n"
+            f"{source}\n"
+            "};\n"
+            "if (document.readyState === 'complete') {\n"
+            "  startResearchWorkspace();\n"
+            "} else {\n"
+            "  window.addEventListener('load', startResearchWorkspace, { once: true });\n"
+            "}\n"
         )
+        response = Response(bootstrap, media_type="application/javascript")
         response.headers["Cache-Control"] = "no-store"
         return response
 
