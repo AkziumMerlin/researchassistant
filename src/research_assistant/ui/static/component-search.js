@@ -52,7 +52,10 @@ async function enhanceModelsDialog(dialog) {
   const results = document.createElement("div");
   results.className = "raComponentSearchResults";
   results.hidden = true;
-  controls.after(results);
+  const scroll = document.createElement("div");
+  scroll.className = "raComponentSearchScroll";
+  controls.after(scroll);
+  scroll.append(results, sourceList);
 
   input.placeholder = "Search name, provider, category, description…";
   input.autocomplete = "off";
@@ -334,7 +337,13 @@ function installComponentSearchStyles() {
     .ra-models-main{min-height:0}
     .ra-models-work{min-height:0;overflow:hidden}
     .raComponentSearchPalette{display:grid;grid-template-rows:auto auto minmax(0,1fr);min-height:0;max-height:100%;overflow:hidden!important}
-    .raComponentSearchPalette #ra-palette-list,.raComponentSearchResults{min-height:0;overflow-y:auto;overflow-x:hidden;scrollbar-gutter:stable;padding-right:4px;padding-bottom:10px}
+    .raComponentSearchScroll{min-height:0;overflow:hidden}
+    .raComponentSearchScroll>#ra-palette-list,.raComponentSearchScroll>.raComponentSearchResults{height:100%;min-height:0;overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable;padding-right:6px;padding-bottom:10px;scrollbar-width:auto;scrollbar-color:#607d6f #0b1210}
+    .raComponentSearchScroll>[hidden]{display:none!important}
+    .raComponentSearchScroll>#ra-palette-list::-webkit-scrollbar,.raComponentSearchResults::-webkit-scrollbar{width:11px}
+    .raComponentSearchScroll>#ra-palette-list::-webkit-scrollbar-track,.raComponentSearchResults::-webkit-scrollbar-track{background:#0b1210;border-left:1px solid #26352f}
+    .raComponentSearchScroll>#ra-palette-list::-webkit-scrollbar-thumb,.raComponentSearchResults::-webkit-scrollbar-thumb{min-height:28px;border:2px solid #0b1210;border-radius:999px;background:#607d6f}
+    .raComponentSearchScroll>#ra-palette-list::-webkit-scrollbar-thumb:hover,.raComponentSearchResults::-webkit-scrollbar-thumb:hover{background:#7fa493}
     .raComponentSearchControls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:5px;align-items:center;margin:6px 0 8px}
     .raComponentSearchSelect{min-width:0;background:#0d141c;color:#d7e2ec;border:1px solid #39475a;border-radius:5px;padding:5px;font-size:11px}
     .raComponentSearchShortcut{border:1px solid #43536a;border-radius:5px;background:#182331;color:#d7e2ec;padding:5px 7px;font-size:10px;cursor:pointer}
