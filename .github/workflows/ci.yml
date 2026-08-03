@@ -23,6 +23,20 @@ jobs:
       - run: ruff check .
       - run: pytest
 
+  browser-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e '.[dev,ui,e2e]'
+      - run: python -m playwright install --with-deps chromium
+      - name: Run browser workbench flow
+        env:
+          RA_BROWSER_E2E: "1"
+        run: pytest tests/test_workspace_v2.py::test_research_workspace_browser_flow
+
   torch:
     runs-on: ubuntu-latest
     steps:
@@ -54,6 +68,8 @@ jobs:
       - run: node --check src/research_assistant/ui/static/explorer-plus.js
       - run: node --check src/research_assistant/ui/static/component-search.js
       - run: node --check src/research_assistant/ui/static/notebook-extension.js
+      - run: node --check src/research_assistant/ui/static/layout-manager.js
+      - run: node --check src/research_assistant/ui/static/research-workspace.js
       - name: Verify generated UI assets are committed
         run: |
           git status --short --untracked-files=all -- src/research_assistant/ui/static
@@ -83,7 +99,20 @@ jobs:
               "research_assistant/ui/static/explorer-plus.js",
               "research_assistant/ui/static/component-search.js",
               "research_assistant/ui/static/notebook-extension.js",
+              "research_assistant/ui/static/layout-manager.js",
+              "research_assistant/ui/static/research-workspace.js",
               "research_assistant/workbench_ui.py",
+              "research_assistant/research_workspace_ui.py",
+              "research_assistant/runtime.py",
+              "research_assistant/capabilities.py",
+              "research_assistant/migrations.py",
+              "research_assistant/plugin_sdk.py",
+              "research_assistant/run_workspace.py",
+              "research_assistant/notebook_context.py",
+              "research_assistant/assistant_core.py",
+              "research_assistant/durable_launches.py",
+              "research_assistant/cli_workspace_v2.py",
+              "research_assistant/ui/adoption_worker.py",
               "research_assistant/terminal.py",
               "research_assistant/tmux_terminal.py",
               "research_assistant/terminal_ui.py",
