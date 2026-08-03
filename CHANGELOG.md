@@ -18,6 +18,8 @@ continue to mature.
 - A typed research-assistant plan contract with conservative built-in actions and explicit write
   authorization.
 - A shared persistent browser layout manager and a real Chromium workbench test in CI.
+- Branch-scoped CI concurrency and connector-readable pending/final commit statuses for direct
+  development pushes.
 
 ## [0.3.0] - 2026-08-03
 
