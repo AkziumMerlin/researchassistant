@@ -19,7 +19,7 @@ continue to mature.
   authorization.
 - A shared persistent browser layout manager and a real Chromium workbench test in CI.
 - Branch-scoped CI concurrency and connector-readable pending/final commit statuses for direct
-  development pushes.
+  development pushes, including browser runtime diagnostics for extension failures.
 
 ## [0.3.0] - 2026-08-03
 
