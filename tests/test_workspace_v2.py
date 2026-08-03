@@ -425,7 +425,10 @@ def test_research_workspace_browser_flow(tmp_path: Path) -> None:
             page.locator("#ra-research-workspace-button").click()
             page.locator("#ra-research-workspace[open]").wait_for()
             page.get_by_role("heading", name="Research workspace").wait_for()
-            page.get_by_text("study-a / run-a").wait_for()
+            page.locator(
+                "#ra-research-workspace .rwRunIdentity strong",
+                has_text="study-a / run-a",
+            ).first.wait_for()
             page.get_by_role("button", name="Layout", exact=True).wait_for()
             page.get_by_role("button", name="Artifacts", exact=True).click()
             page.get_by_role("button", name="Assistant", exact=True).click()
