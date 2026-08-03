@@ -1,0 +1,4 @@
+extend = "pyproject.toml"
+
+[lint.extend-per-file-ignores]
+"tests/conftest.py" = ["E402", "I001"]
