@@ -19,25 +19,115 @@ class Capability:
     notes: str = ""
 
 
+def _capability(
+    capability_id: str,
+    domain: str,
+    title: str,
+    *,
+    stability: Stability = "stable",
+) -> Capability:
+    return Capability(
+        capability_id=capability_id,
+        domain=domain,
+        title=title,
+        cli="yes",
+        api="yes",
+        ui="yes",
+        stability=stability,
+    )
+
+
 CAPABILITIES: tuple[Capability, ...] = (
-    Capability("config.compose", "configuration", "Compose and validate configurations", "yes", "yes", "yes"),
-    Capability("config.create", "configuration", "Create typed configurations", "yes", "yes", "yes"),
-    Capability("model.graph", "models", "Design typed PyTorch graphs", "yes", "yes", "yes"),
-    Capability("launch.local", "execution", "Launch local and SSH-backed experiments", "yes", "yes", "yes"),
-    Capability("launch.durable", "execution", "Recover, adopt, retry and cancel detached launches", "yes", "yes", "yes", "experimental"),
-    Capability("checkpoint.infer", "execution", "Inspect checkpoints and run inference", "yes", "yes", "yes"),
-    Capability("run.workspace", "runs", "Browse studies, trials and runs", "yes", "yes", "yes", "experimental"),
-    Capability("run.aggregate", "runs", "Aggregate arbitrary selected runs across studies", "yes", "yes", "yes", "experimental"),
-    Capability("artifact.catalog", "artifacts", "Discover and catalog scientific artifacts", "yes", "yes", "yes"),
-    Capability("artifact.preview", "artifacts", "Preview, slice, compare and trace artifact lineage", "yes", "yes", "yes", "experimental"),
-    Capability("notebook.context", "analysis", "Open notebooks with selected run and artifact context", "yes", "yes", "yes", "experimental"),
-    Capability("analysis.session", "analysis", "Run detached analysis sessions", "yes", "yes", "yes"),
-    Capability("report.build", "reporting", "Build charts, tables and evaluation reports", "yes", "yes", "yes"),
-    Capability("workspace.manage", "workspace", "Manage local and SSH workspaces and environments", "yes", "yes", "yes"),
-    Capability("lifecycle.manage", "workspace", "Pin, archive, trash and restore results", "yes", "yes", "yes"),
-    Capability("plugin.contract", "plugins", "Validate plugin compatibility contracts", "yes", "yes", "yes", "experimental"),
-    Capability("schema.migrate", "plugins", "Migrate persisted configuration schemas", "yes", "yes", "yes", "experimental"),
-    Capability("assistant.plan", "assistant", "Create typed, validated research plans", "yes", "yes", "yes", "experimental"),
+    _capability(
+        "config.compose",
+        "configuration",
+        "Compose and validate configurations",
+    ),
+    _capability("config.create", "configuration", "Create typed configurations"),
+    _capability("model.graph", "models", "Design typed PyTorch graphs"),
+    _capability(
+        "launch.local",
+        "execution",
+        "Launch local and SSH-backed experiments",
+    ),
+    _capability(
+        "launch.durable",
+        "execution",
+        "Recover, adopt, retry and cancel detached launches",
+        stability="experimental",
+    ),
+    _capability(
+        "checkpoint.infer",
+        "execution",
+        "Inspect checkpoints and run inference",
+    ),
+    _capability(
+        "run.workspace",
+        "runs",
+        "Browse studies, trials and runs",
+        stability="experimental",
+    ),
+    _capability(
+        "run.aggregate",
+        "runs",
+        "Aggregate arbitrary selected runs across studies",
+        stability="experimental",
+    ),
+    _capability(
+        "artifact.catalog",
+        "artifacts",
+        "Discover and catalog scientific artifacts",
+    ),
+    _capability(
+        "artifact.preview",
+        "artifacts",
+        "Preview, slice, compare and trace artifact lineage",
+        stability="experimental",
+    ),
+    _capability(
+        "notebook.context",
+        "analysis",
+        "Open notebooks with selected run and artifact context",
+        stability="experimental",
+    ),
+    _capability(
+        "analysis.session",
+        "analysis",
+        "Run detached analysis sessions",
+    ),
+    _capability(
+        "report.build",
+        "reporting",
+        "Build charts, tables and evaluation reports",
+    ),
+    _capability(
+        "workspace.manage",
+        "workspace",
+        "Manage local and SSH workspaces and environments",
+    ),
+    _capability(
+        "lifecycle.manage",
+        "workspace",
+        "Pin, archive, trash and restore results",
+    ),
+    _capability(
+        "plugin.contract",
+        "plugins",
+        "Validate plugin compatibility contracts",
+        stability="experimental",
+    ),
+    _capability(
+        "schema.migrate",
+        "plugins",
+        "Migrate persisted configuration schemas",
+        stability="experimental",
+    ),
+    _capability(
+        "assistant.plan",
+        "assistant",
+        "Create typed, validated research plans",
+        stability="experimental",
+    ),
 )
 
 
