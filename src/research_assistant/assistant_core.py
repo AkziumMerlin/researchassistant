@@ -8,7 +8,9 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from research_assistant.capabilities import CAPABILITIES
 from research_assistant.errors import ResearchAssistantError
+from research_assistant.models import ComponentRef
 from research_assistant.notebook_context import NotebookContextStore
+from research_assistant.registry import Registry
 from research_assistant.run_workspace import RunWorkspace
 from research_assistant.scientific_artifacts import ScientificArtifactCatalog
 
@@ -30,6 +32,8 @@ class AssistantRequest(AssistantModel):
     artifact_root: str = "runs"
     run_ids: list[str] = Field(default_factory=list)
     artifact_ids: list[str] = Field(default_factory=list)
+    provider: str | None = None
+    provider_params: dict[str, Any] = Field(default_factory=dict)
     allow_writes: bool = False
 
 
@@ -64,7 +68,7 @@ class AssistantPlan(AssistantModel):
 
 
 class AssistantProvider(Protocol):
-    def plan(self, request: AssistantRequest) -> AssistantPlan: ...
+    def plan(self, request: AssistantRequest) -> AssistantPlan | dict[str, Any]: ...
 
 
 class DeterministicAssistant:
@@ -76,15 +80,22 @@ class DeterministicAssistant:
         actions: list[AssistantAction] = []
         warnings: list[str] = []
 
-        if request.run_ids or any(token in lower for token in ("run", "эксперимент", "результат")):
+        if request.run_ids or any(
+            token in lower for token in ("run", "эксперимент", "результат")
+        ):
             actions.append(
                 AssistantAction(
                     action_id="inspect-runs",
                     kind="inspect_runs",
                     title="Inspect selected runs",
-                    rationale="Resolve run states, configurations, metrics and resource provenance first.",
+                    rationale=(
+                        "Resolve run states, configurations, metrics and resource provenance first."
+                    ),
                     capability="run.workspace",
-                    parameters={"run_ids": request.run_ids, "artifact_root": request.artifact_root},
+                    parameters={
+                        "run_ids": request.run_ids,
+                        "artifact_root": request.artifact_root,
+                    },
                 )
             )
 
@@ -94,7 +105,10 @@ class DeterministicAssistant:
                     action_id="aggregate-runs",
                     kind="aggregate_runs",
                     title="Aggregate selected runs",
-                    rationale="The selected runs may belong to different studies or trials; aggregate only explicit run identifiers.",
+                    rationale=(
+                        "The selected runs may belong to different studies or trials; "
+                        "aggregate only explicit run identifiers."
+                    ),
                     capability="run.aggregate",
                     parameters={
                         "run_ids": request.run_ids,
@@ -105,7 +119,8 @@ class DeterministicAssistant:
             )
 
         if len(request.artifact_ids) >= 2 or any(
-            token in lower for token in ("compare", "сравн", "ошиб", "artifact", "артефакт")
+            token in lower
+            for token in ("compare", "сравн", "ошиб", "artifact", "артефакт")
         ):
             if len(request.artifact_ids) >= 2:
                 actions.append(
@@ -113,7 +128,10 @@ class DeterministicAssistant:
                         action_id="compare-artifacts",
                         kind="compare_artifacts",
                         title="Compare scientific artifacts",
-                        rationale="Use typed artifact metadata and bounded numerical comparison rather than loading arbitrary files.",
+                        rationale=(
+                            "Use typed artifact metadata and bounded numerical comparison "
+                            "rather than loading arbitrary files."
+                        ),
                         capability="artifact.preview",
                         parameters={
                             "left_id": request.artifact_ids[0],
@@ -122,7 +140,9 @@ class DeterministicAssistant:
                     )
                 )
             else:
-                warnings.append("Artifact comparison needs at least two explicit artifact identifiers.")
+                warnings.append(
+                    "Artifact comparison needs at least two explicit artifact identifiers."
+                )
 
         if request.run_ids or request.artifact_ids:
             actions.append(
@@ -130,7 +150,10 @@ class DeterministicAssistant:
                     action_id="analysis-context",
                     kind="create_notebook_context",
                     title="Create a reproducible notebook context",
-                    rationale="Bind analysis to an immutable explicit selection instead of relying on notebook-global filesystem discovery.",
+                    rationale=(
+                        "Bind analysis to an immutable explicit selection instead of relying "
+                        "on notebook-global filesystem discovery."
+                    ),
                     capability="notebook.context",
                     parameters={
                         "run_ids": request.run_ids,
@@ -142,13 +165,19 @@ class DeterministicAssistant:
                 )
             )
 
-        if any(token in lower for token in ("config", "конфиг", "train", "обуч", "launch", "запуск")):
+        if any(
+            token in lower
+            for token in ("config", "конфиг", "train", "обуч", "launch", "запуск")
+        ):
             actions.append(
                 AssistantAction(
                     action_id="draft-config",
                     kind="draft_config",
                     title="Draft a validated experiment configuration",
-                    rationale="Produce a schema-valid draft only; execution remains a separate previewed action.",
+                    rationale=(
+                        "Produce a schema-shaped draft only; execution remains a separate "
+                        "previewed action."
+                    ),
                     capability="assistant.plan",
                     parameters={"experiment_name": "assistant-draft"},
                     mutates_workspace=False,
@@ -161,7 +190,10 @@ class DeterministicAssistant:
                     action_id="inspect-runs",
                     kind="inspect_runs",
                     title="Inspect the current run workspace",
-                    rationale="Start from persisted manifests and statuses before proposing research actions.",
+                    rationale=(
+                        "Start from persisted manifests and statuses before proposing "
+                        "research actions."
+                    ),
                     capability="run.workspace",
                     parameters={"run_ids": [], "artifact_root": request.artifact_root},
                 )
@@ -169,7 +201,8 @@ class DeterministicAssistant:
 
         if any(action.mutates_workspace for action in actions) and not request.allow_writes:
             warnings.append(
-                "Workspace-mutating actions are present but disabled; enable writes only after reviewing the typed plan."
+                "Workspace-mutating actions are present but disabled; enable writes only after "
+                "reviewing the typed plan."
             )
 
         return AssistantPlan(
@@ -189,12 +222,38 @@ class AssistantEngine:
         workspace: str,
         *,
         provider: AssistantProvider | None = None,
+        registry: Registry | None = None,
     ) -> None:
         self.workspace = workspace
         self.provider = provider or DeterministicAssistant()
+        self.registry = registry
+
+    def _resolve_provider(self, request: AssistantRequest) -> AssistantProvider:
+        if request.provider is None:
+            return self.provider
+        if self.registry is None:
+            raise ResearchAssistantError(
+                "a registered assistant provider requires a loaded project registry"
+            )
+        value = self.registry.invoke(
+            "assistant",
+            ComponentRef(type=request.provider, params=request.provider_params),
+            {"workspace": self.workspace},
+        )
+        if not callable(getattr(value, "plan", None)):
+            raise ResearchAssistantError(
+                f"assistant provider {request.provider!r} does not implement plan(request)"
+            )
+        return value
 
     def plan(self, request: AssistantRequest) -> AssistantPlan:
-        return self.provider.plan(request)
+        value = self._resolve_provider(request).plan(request)
+        try:
+            return value if isinstance(value, AssistantPlan) else AssistantPlan.model_validate(value)
+        except Exception as exc:
+            raise ResearchAssistantError(
+                f"assistant provider returned an invalid typed plan: {exc}"
+            ) from exc
 
     def apply(self, request: AssistantRequest, plan: AssistantPlan) -> dict[str, Any]:
         results: list[dict[str, Any]] = []
@@ -228,19 +287,27 @@ class AssistantEngine:
         return {"schema_version": 1, "goal": plan.goal, "results": results}
 
     def _inspect_runs(self, action: AssistantAction, request: AssistantRequest) -> Any:
-        workspace = RunWorkspace(self.workspace, action.parameters.get("artifact_root", request.artifact_root))
+        workspace = RunWorkspace(
+            self.workspace,
+            action.parameters.get("artifact_root", request.artifact_root),
+        )
         run_ids = list(action.parameters.get("run_ids") or [])
         if run_ids:
             return {"runs": workspace.require_runs(run_ids)}
         return workspace.catalog(limit=200)
 
     def _aggregate_runs(self, action: AssistantAction, request: AssistantRequest) -> Any:
-        workspace = RunWorkspace(self.workspace, action.parameters.get("artifact_root", request.artifact_root))
+        workspace = RunWorkspace(
+            self.workspace,
+            action.parameters.get("artifact_root", request.artifact_root),
+        )
         return workspace.aggregate(
             list(action.parameters.get("run_ids") or []),
             metric=action.parameters.get("metric"),
             stage=action.parameters.get("stage"),
-            group_by=list(action.parameters.get("group_by") or ["study_id", "trial_id"]),
+            group_by=list(
+                action.parameters.get("group_by") or ["study_id", "trial_id"]
+            ),
         )
 
     def _compare_artifacts(self, action: AssistantAction) -> Any:
@@ -250,11 +317,17 @@ class AssistantEngine:
             key=action.parameters.get("key"),
         )
 
-    def _create_context(self, action: AssistantAction, request: AssistantRequest) -> Any:
+    def _create_context(
+        self,
+        action: AssistantAction,
+        request: AssistantRequest,
+    ) -> Any:
         return NotebookContextStore(self.workspace).create(
             run_ids=list(action.parameters.get("run_ids") or []),
             artifact_ids=list(action.parameters.get("artifact_ids") or []),
-            artifact_root=str(action.parameters.get("artifact_root", request.artifact_root)),
+            artifact_root=str(
+                action.parameters.get("artifact_root", request.artifact_root)
+            ),
             label=action.parameters.get("label"),
             notebook_path=action.parameters.get("notebook_path"),
         )
@@ -265,7 +338,9 @@ class AssistantEngine:
             "version": 1,
             "experiment": {
                 "name": name,
-                "description": "Typed ResearchAssistant draft; review components and stages before launch.",
+                "description": (
+                    "Typed ResearchAssistant draft; review components and stages before launch."
+                ),
                 "tags": ["assistant-draft"],
             },
             "stages": [{"name": "prepare", "type": "core/noop", "params": {}}],
