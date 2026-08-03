@@ -4,6 +4,10 @@ on:
   push:
   pull_request:
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -70,6 +74,7 @@ jobs:
       - run: node --check src/research_assistant/ui/static/notebook-extension.js
       - run: node --check src/research_assistant/ui/static/layout-manager.js
       - run: node --check src/research_assistant/ui/static/research-workspace.js
+      - run: node --check src/research_assistant/ui/static/assets/research-workspace-ready.js
       - name: Verify generated UI assets are committed
         run: |
           git status --short --untracked-files=all -- src/research_assistant/ui/static
@@ -101,6 +106,7 @@ jobs:
               "research_assistant/ui/static/notebook-extension.js",
               "research_assistant/ui/static/layout-manager.js",
               "research_assistant/ui/static/research-workspace.js",
+              "research_assistant/ui/static/assets/research-workspace-ready.js",
               "research_assistant/workbench_ui.py",
               "research_assistant/research_workspace_ui.py",
               "research_assistant/runtime.py",
