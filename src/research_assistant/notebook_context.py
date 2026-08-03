@@ -145,8 +145,13 @@ class NotebookContextStore:
                 },
             },
         )
+        document = json.loads(nbformat.writes(notebook, version=4))
+        for cell in document.get("cells", []):
+            cell_source = cell.get("source")
+            if isinstance(cell_source, list):
+                cell["source"] = "".join(cell_source)
         destination.write_text(
-            nbformat.writes(notebook, version=4) + "\n",
+            json.dumps(document, indent=1, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
 
