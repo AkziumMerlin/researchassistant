@@ -15,76 +15,8 @@ jobs:
   ci-pending:
     runs-on: ubuntu-latest
     permissions:
-      contents: write
       statuses: write
     steps:
-      - uses: actions/checkout@v4
-      - name: Apply final scoped Research workspace selector
-        if: github.ref == 'refs/heads/feature/research-workspace-v2'
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          path = Path("tests/test_workspace_v2.py")
-          source = path.read_text(encoding="utf-8")
-          old = '''            page.locator("#ra-research-workspace-button").click()
-            page.locator("#ra-research-workspace[open]").wait_for()
-            page.get_by_role("heading", name="Research workspace").wait_for()
-            page.locator(
-                "#ra-research-workspace .rwRunIdentity strong",
-                has_text="study-a / run-a",
-            ).first.wait_for()
-            page.get_by_role("button", name="Layout", exact=True).wait_for()
-            page.get_by_role("button", name="Artifacts", exact=True).click()
-            page.get_by_role("button", name="Assistant", exact=True).click()
-            page.get_by_role("heading", name="Typed research planner").wait_for()
-'''
-          new = '''            page.locator("#ra-research-workspace-button").click()
-            workspace_dialog = page.locator("#ra-research-workspace[open]")
-            workspace_dialog.wait_for()
-            workspace_dialog.get_by_role(
-                "heading",
-                name="Research workspace",
-            ).wait_for()
-            workspace_dialog.locator(
-                ".rwRunIdentity strong",
-                has_text="study-a / run-a",
-            ).first.wait_for()
-            page.get_by_role("button", name="Layout", exact=True).wait_for()
-            workspace_dialog.get_by_role(
-                "button",
-                name="Artifacts",
-                exact=True,
-            ).click()
-            workspace_dialog.get_by_role(
-                "button",
-                name="Assistant",
-                exact=True,
-            ).click()
-            workspace_dialog.get_by_role(
-                "heading",
-                name="Typed research planner",
-            ).wait_for()
-'''
-          changed = old in source
-          if changed:
-              path.write_text(source.replace(old, new), encoding="utf-8")
-          helper = Path(".github/workflows/apply-final-browser-scope.yml")
-          if helper.exists():
-              helper.unlink()
-              changed = True
-          Path(".ra-ci-patch-changed").write_text(str(int(changed)), encoding="utf-8")
-          PY
-          if [ "$(cat .ra-ci-patch-changed)" = 1 ]; then
-            rm .ra-ci-patch-changed
-            git config user.name github-actions[bot]
-            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add tests/test_workspace_v2.py .github/workflows/apply-final-browser-scope.yml
-            git commit -m "Scope Research workspace E2E locators"
-            git push origin HEAD:feature/research-workspace-v2
-          else
-            rm .ra-ci-patch-changed
-          fi
       - name: Publish connector-readable pending status
         env:
           GH_TOKEN: ${{ github.token }}
