@@ -56,10 +56,18 @@ def _write_run(
                 "data": {"type": "example/data", "params": {}},
             },
             "matrix": {},
-            "stages": [{"name": "test", "type": "core/noop", "needs": [], "params": {}}],
+            "stages": [
+                {"name": "test", "type": "core/noop", "needs": [], "params": {}}
+            ],
             "resources": {"accelerator": "cpu", "devices": 1},
             "artifacts": {"root": "runs"},
-            "logging": {"tensorboard": {"enabled": False, "directory": "tensorboard", "flush_seconds": 30}},
+            "logging": {
+                "tensorboard": {
+                    "enabled": False,
+                    "directory": "tensorboard",
+                    "flush_seconds": 30,
+                }
+            },
         },
     }
     status = {
@@ -130,7 +138,9 @@ def test_capability_matrix_declares_cli_api_ui_parity() -> None:
         for row in matrix["capabilities"]
         for surface in ("cli", "api", "ui")
     )
-    assert any(row["capability_id"] == "run.aggregate" for row in matrix["capabilities"])
+    assert any(
+        row["capability_id"] == "run.aggregate" for row in matrix["capabilities"]
+    )
 
 
 def test_legacy_config_migration_is_explicit_and_idempotent() -> None:
@@ -174,7 +184,9 @@ def test_plugin_contract_reports_compatible_and_incompatible_plugins() -> None:
     assert "requires ResearchAssistant" in diagnostic.message
 
 
-def test_cross_study_run_aggregation_uses_explicit_run_selection(tmp_path: Path) -> None:
+def test_cross_study_run_aggregation_uses_explicit_run_selection(
+    tmp_path: Path,
+) -> None:
     _write_run(
         tmp_path,
         study_id="study-a",
@@ -201,14 +213,19 @@ def test_cross_study_run_aggregation_uses_explicit_run_selection(tmp_path: Path)
     )
 
     assert catalog["total"] == 2
-    assert {row["study_id"] for row in catalog["runs"]} == {"study-a", "study-b"}
+    assert {row["study_id"] for row in catalog["runs"]} == {
+        "study-a",
+        "study-b",
+    }
     assert aggregate["selected_runs"] == ["run-a", "run-b"]
     assert aggregate["groups"][0]["n"] == 2
     assert aggregate["groups"][0]["mean"] == pytest.approx(0.2)
     assert aggregate["groups"][0]["run_ids"] == ["run-a", "run-b"]
 
 
-def test_notebook_context_binds_selected_runs_and_creates_notebook(tmp_path: Path) -> None:
+def test_notebook_context_binds_selected_runs_and_creates_notebook(
+    tmp_path: Path,
+) -> None:
     pytest.importorskip("nbformat")
     _write_run(
         tmp_path,
@@ -227,12 +244,19 @@ def test_notebook_context_binds_selected_runs_and_creates_notebook(tmp_path: Pat
 
     assert context["run_ids"] == ["run-a"]
     assert context["runs"][0]["study_id"] == "study-a"
-    notebook = json.loads((tmp_path / "notebooks" / "run-a.ipynb").read_text(encoding="utf-8"))
-    assert notebook["metadata"]["research_assistant"]["context_path"] == context["context_path"]
+    notebook = json.loads(
+        (tmp_path / "notebooks" / "run-a.ipynb").read_text(encoding="utf-8")
+    )
+    assert (
+        notebook["metadata"]["research_assistant"]["context_path"]
+        == context["context_path"]
+    )
     assert "RA_CONTEXT" in notebook["cells"][1]["source"]
 
 
-def test_typed_assistant_aggregates_but_blocks_unapproved_writes(tmp_path: Path) -> None:
+def test_typed_assistant_aggregates_but_blocks_unapproved_writes(
+    tmp_path: Path,
+) -> None:
     for run_id, seed, value in (("run-a", 0, 0.1), ("run-b", 1, 0.2)):
         _write_run(
             tmp_path,
@@ -276,7 +300,10 @@ def test_durable_launch_reconciliation_and_adoption_cleanup(
         scheduler_pid=999_999_999,
     )
     manager = DurableLaunchManager(Workspace(tmp_path))
-    assert json.loads((completed / "state.json").read_text(encoding="utf-8"))["state"] == "completed"
+    completed_state = json.loads(
+        (completed / "state.json").read_text(encoding="utf-8")
+    )
+    assert completed_state["state"] == "completed"
 
     failed_run = tmp_path / "runs" / "study-a" / "run-a" / "status.json"
     failed_run.write_text(
@@ -306,7 +333,9 @@ def test_durable_launch_reconciliation_and_adoption_cleanup(
     detail = manager.adopt("launch-failed")
     assert detail["state"] == "adopting"
     assert not (adoptable / "control.json").exists()
-    request = json.loads((adoptable / "request.json").read_text(encoding="utf-8"))
+    request = json.loads(
+        (adoptable / "request.json").read_text(encoding="utf-8")
+    )
     assert request["resume"] is True
     assert request["adoption_generation"] == 1
 
@@ -327,7 +356,8 @@ def test_workspace_v2_api_and_assets_are_registered(tmp_path: Path) -> None:
     assert "/api/extensions/layout-manager.js" in index.text
     assert "/api/extensions/research-workspace.js" in index.text
     assert "__RA_LAYOUT__" in client.get("/api/extensions/layout-manager.js").text
-    assert "Cross-run aggregation" in client.get("/api/extensions/research-workspace.js").text
+    workspace_script = client.get("/api/extensions/research-workspace.js").text
+    assert "Cross-run aggregation" in workspace_script
 
     capabilities = client.get("/api/workspace-v2/capabilities")
     assert capabilities.status_code == 200
@@ -392,10 +422,11 @@ def test_research_workspace_browser_flow(tmp_path: Path) -> None:
             browser = playwright.chromium.launch()
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.goto(f"http://127.0.0.1:{port}", wait_until="networkidle")
-            page.get_by_role("button", name="Research").click()
+            page.locator("#ra-research-workspace-button").click()
+            page.locator("#ra-research-workspace[open]").wait_for()
             page.get_by_role("heading", name="Research workspace").wait_for()
             page.get_by_text("study-a / run-a").wait_for()
-            page.get_by_role("button", name="Layout").wait_for()
+            page.get_by_role("button", name="Layout", exact=True).wait_for()
             page.get_by_role("button", name="Artifacts", exact=True).click()
             page.get_by_role("button", name="Assistant", exact=True).click()
             page.get_by_role("heading", name="Typed research planner").wait_for()
