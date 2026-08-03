@@ -1,4 +1,8 @@
 const EXPLORER_MARK = "researchAssistantLazyExplorer";
+const EXPLORER_WIDTH_KEY = "ra.ui.explorerWidth";
+const EXPLORER_WIDTH_DEFAULT = 270;
+const EXPLORER_WIDTH_MIN = 190;
+const EXPLORER_WIDTH_MAX = 640;
 
 if (!globalThis[EXPLORER_MARK]) {
   globalThis[EXPLORER_MARK] = true;
@@ -13,6 +17,7 @@ async function installExplorerWhenReady() {
   if (!bridge || !tree || !originalFilter || !count) return;
 
   installExplorerStyles();
+  installExplorerResizer();
 
   const filter = originalFilter.cloneNode(true);
   originalFilter.replaceWith(filter);
@@ -115,6 +120,91 @@ function waitForWorkbench() {
     addEventListener("ra-workbench-ready", check, { once: true });
     check();
   });
+}
+
+function installExplorerResizer() {
+  const workbench = document.querySelector(".workbench");
+  if (!workbench || workbench.querySelector(".raExplorerResizer")) return;
+
+  const resizer = document.createElement("div");
+  resizer.className = "raExplorerResizer";
+  resizer.tabIndex = 0;
+  resizer.setAttribute("role", "separator");
+  resizer.setAttribute("aria-label", "Resize Explorer");
+  resizer.setAttribute("aria-orientation", "vertical");
+  resizer.title = "Drag to resize Explorer · Double-click to reset";
+  workbench.append(resizer);
+
+  let activePointer = null;
+  let width = readExplorerWidth();
+
+  const maximumWidth = () => {
+    const reserved = workbench.classList.contains("ra-registry-open") ? 620 : 360;
+    return Math.max(
+      EXPLORER_WIDTH_MIN,
+      Math.min(EXPLORER_WIDTH_MAX, Math.floor(workbench.clientWidth - reserved)),
+    );
+  };
+
+  const applyWidth = (value, persist = false) => {
+    const maximum = maximumWidth();
+    const numeric = Number.isFinite(Number(value)) ? Number(value) : EXPLORER_WIDTH_DEFAULT;
+    width = Math.round(Math.min(maximum, Math.max(EXPLORER_WIDTH_MIN, numeric)));
+    document.documentElement.style.setProperty("--ra-explorer-width", `${width}px`);
+    resizer.setAttribute("aria-valuemin", String(EXPLORER_WIDTH_MIN));
+    resizer.setAttribute("aria-valuemax", String(maximum));
+    resizer.setAttribute("aria-valuenow", String(width));
+    if (persist) {
+      try {
+        localStorage.setItem(EXPLORER_WIDTH_KEY, String(width));
+      } catch {}
+    }
+  };
+
+  const finishResize = (event) => {
+    if (activePointer === null || (event && event.pointerId !== activePointer)) return;
+    activePointer = null;
+    document.documentElement.classList.remove("raExplorerResizing");
+    applyWidth(width, true);
+  };
+
+  resizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    activePointer = event.pointerId;
+    resizer.setPointerCapture(event.pointerId);
+    document.documentElement.classList.add("raExplorerResizing");
+  });
+  resizer.addEventListener("pointermove", (event) => {
+    if (event.pointerId !== activePointer) return;
+    const left = workbench.getBoundingClientRect().left;
+    applyWidth(event.clientX - left);
+  });
+  resizer.addEventListener("pointerup", finishResize);
+  resizer.addEventListener("pointercancel", finishResize);
+  resizer.addEventListener("dblclick", () => applyWidth(EXPLORER_WIDTH_DEFAULT, true));
+  resizer.addEventListener("keydown", (event) => {
+    let next = width;
+    if (event.key === "ArrowLeft") next -= event.shiftKey ? 48 : 16;
+    else if (event.key === "ArrowRight") next += event.shiftKey ? 48 : 16;
+    else if (event.key === "Home") next = EXPLORER_WIDTH_MIN;
+    else if (event.key === "End") next = maximumWidth();
+    else return;
+    event.preventDefault();
+    applyWidth(next, true);
+  });
+  window.addEventListener("resize", () => applyWidth(width, true));
+
+  applyWidth(width);
+}
+
+function readExplorerWidth() {
+  try {
+    const value = Number.parseFloat(localStorage.getItem(EXPLORER_WIDTH_KEY) || "");
+    return Number.isFinite(value) ? value : EXPLORER_WIDTH_DEFAULT;
+  } catch {
+    return EXPLORER_WIDTH_DEFAULT;
+  }
 }
 
 function readExpanded(key) {
@@ -412,6 +502,14 @@ function installExplorerStyles() {
   const style = document.createElement("style");
   style.id = "ra-explorer-plus-styles";
   style.textContent = `
+    :root{--ra-explorer-width:${EXPLORER_WIDTH_DEFAULT}px}
+    .topbar{grid-template-columns:var(--ra-explorer-width) minmax(0,1fr) auto}
+    .workbench{position:relative;grid-template-columns:var(--ra-explorer-width) minmax(0,1fr)}
+    .workbench.ra-registry-open{grid-template-columns:var(--ra-explorer-width) minmax(0,1fr) 310px}
+    .raExplorerResizer{position:absolute;z-index:25;top:0;bottom:0;left:calc(var(--ra-explorer-width) - 4px);width:8px;cursor:col-resize;touch-action:none;outline:0}
+    .raExplorerResizer::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:2px;background:transparent;transition:background 100ms ease}
+    .raExplorerResizer:hover::after,.raExplorerResizer:focus-visible::after,.raExplorerResizing .raExplorerResizer::after{background:#7ce5b2}
+    .raExplorerResizing,.raExplorerResizing *{cursor:col-resize!important;user-select:none!important}
     .raExplorerToolbar{display:flex;align-items:center;gap:5px;padding:0 10px 8px;color:#8fa49b;font-size:11px}
     .raExplorerToolbar button{border:1px solid #33443e;border-radius:4px;background:#131b19;color:#c8d6d0;padding:3px 7px;cursor:pointer}
     .raExplorerToolbar button:hover{border-color:#5f8877;background:#1a2521}
