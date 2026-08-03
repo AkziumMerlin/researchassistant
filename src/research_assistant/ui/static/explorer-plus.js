@@ -418,10 +418,11 @@ function installExplorerStyles() {
     .raExplorerScope{margin-left:auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .raExplorerRoot{min-width:max-content;padding-bottom:12px}
     .raExplorerRow{width:100%;min-width:210px;display:grid;grid-template-columns:18px minmax(0,1fr) auto;align-items:center;gap:4px;border:0;background:transparent;color:inherit;text-align:left;padding:4px 8px 4px calc(8px + var(--depth,0) * 14px);font:12px/1.25 ui-monospace,SFMono-Regular,Consolas,monospace;cursor:pointer}
+    .raExplorerRow.directory{grid-template-columns:18px 18px minmax(0,1fr);color:#c8d6d0;font-weight:600}
     .raExplorerRow:hover{background:#1c2824}.raExplorerRow:focus-visible{outline:1px solid #6bb893;outline-offset:-1px}
-    .raExplorerRow.directory{font-weight:600}.raExplorerRow.file.disabled{opacity:.55}
+    .raExplorerRow.file.disabled{opacity:.55}
     .raExplorerChevron{width:14px;text-align:center;color:#8ca79b}.raExplorerRow.file .raExplorerChevron{display:none}
-    .raExplorerIcon{width:18px;text-align:center;color:#76c9a2;font-size:10px}.raExplorerName{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .raExplorerIcon{width:18px;text-align:center;color:#76c9a2;font-size:10px}.raExplorerName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .raExplorerMatchKind{margin-left:10px;color:#71857c;font-size:10px}
     .raExplorerMore{display:block;width:calc(100% - 8px);border:0;background:transparent;color:#7fc9a7;text-align:left;padding:5px 8px 5px calc(26px + var(--depth,0) * 14px);font-size:11px;cursor:pointer}
     .raExplorerMore:hover{background:#1c2824}
