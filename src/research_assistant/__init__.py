@@ -1,6 +1,7 @@
 """ResearchAssistant public API."""
 
-from importlib.metadata import PackageNotFoundError, version as distribution_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
 
 from research_assistant.config import load_config
 from research_assistant.planning import Plan, RunManifest, compile_plan
