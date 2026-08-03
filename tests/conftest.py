@@ -14,7 +14,7 @@ if str(SRC) not in sys.path:
 
 @pytest.fixture(autouse=True)
 def browser_e2e_diagnostics(monkeypatch: pytest.MonkeyPatch):
-    """Print browser runtime failures in the dedicated Playwright CI process."""
+    """Print browser runtime failures and loaded scripts in the Playwright CI process."""
     if os.environ.get("RA_BROWSER_E2E") != "1":
         yield
         return
@@ -43,6 +43,18 @@ def browser_e2e_diagnostics(monkeypatch: pytest.MonkeyPatch):
                 flush=True,
             ),
         )
+
+        def report_response(response) -> None:
+            resource_type = response.request.resource_type
+            if resource_type not in {"document", "script"} and "/api/extensions/" not in response.url:
+                return
+            print(
+                f"[browser response:{resource_type}] {response.status} {response.url} "
+                f"content-type={response.headers.get('content-type', '')}",
+                flush=True,
+            )
+
+        page.on("response", report_response)
         return page
 
     monkeypatch.setattr(playwright_api.Browser, "new_page", new_page)
