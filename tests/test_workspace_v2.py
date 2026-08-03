@@ -423,16 +423,31 @@ def test_research_workspace_browser_flow(tmp_path: Path) -> None:
             page = browser.new_page(viewport={"width": 1440, "height": 900})
             page.goto(f"http://127.0.0.1:{port}", wait_until="networkidle")
             page.locator("#ra-research-workspace-button").click()
-            page.locator("#ra-research-workspace[open]").wait_for()
-            page.get_by_role("heading", name="Research workspace").wait_for()
-            page.locator(
-                "#ra-research-workspace .rwRunIdentity strong",
+            workspace_dialog = page.locator("#ra-research-workspace[open]")
+            workspace_dialog.wait_for()
+            workspace_dialog.get_by_role(
+                "heading",
+                name="Research workspace",
+            ).wait_for()
+            workspace_dialog.locator(
+                ".rwRunIdentity strong",
                 has_text="study-a / run-a",
             ).first.wait_for()
             page.get_by_role("button", name="Layout", exact=True).wait_for()
-            page.get_by_role("button", name="Artifacts", exact=True).click()
-            page.get_by_role("button", name="Assistant", exact=True).click()
-            page.get_by_role("heading", name="Typed research planner").wait_for()
+            workspace_dialog.get_by_role(
+                "button",
+                name="Artifacts",
+                exact=True,
+            ).click()
+            workspace_dialog.get_by_role(
+                "button",
+                name="Assistant",
+                exact=True,
+            ).click()
+            workspace_dialog.get_by_role(
+                "heading",
+                name="Typed research planner",
+            ).wait_for()
             browser.close()
     finally:
         instance.should_exit = True
