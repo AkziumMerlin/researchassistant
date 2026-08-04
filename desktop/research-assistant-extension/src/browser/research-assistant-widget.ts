@@ -15,6 +15,7 @@ import { renderModels } from './tabs/models-tab';
 import { renderMonitor } from './tabs/monitor-tab';
 import { renderNotebooks } from './tabs/notebooks-tab';
 import { renderReports } from './tabs/reports-tab';
+import { renderResearch } from './tabs/research-tab';
 import { renderRuns } from './tabs/runs-tab';
 
 export const ResearchAssistantWidgetId = 'research-assistant.workspace';
@@ -27,6 +28,7 @@ type TabId =
     | 'notebooks'
     | 'execution'
     | 'monitor'
+    | 'research'
     | 'assistant';
 
 @injectable()
@@ -79,6 +81,7 @@ export class ResearchAssistantWidget extends BaseWidget {
             ['notebooks', 'Notebooks', 'notebook'],
             ['execution', 'Execution', 'server-process'],
             ['monitor', 'Monitor', 'pulse'],
+            ['research', 'Research', 'beaker'],
             ['assistant', 'Assistant', 'sparkle'],
         ];
         for (const [id, label, icon] of tabs) {
@@ -114,6 +117,7 @@ export class ResearchAssistantWidget extends BaseWidget {
                 notebooks: () => renderNotebooks(this),
                 execution: () => renderExecution(this),
                 monitor: () => renderMonitor(this),
+                research: () => renderResearch(this),
                 assistant: () => renderAssistant(this),
             }[tab]();
             this.content.dataset.loaded = tab;
