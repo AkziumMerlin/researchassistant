@@ -2,9 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
-import threading
-import time
 from pathlib import Path
 from types import ModuleType
 
@@ -15,12 +12,12 @@ import research_assistant.cli_workbench  # noqa: F401
 from research_assistant.assistant_core import AssistantEngine, AssistantRequest
 from research_assistant.capabilities import capability_matrix
 from research_assistant.cli_workbench import app
+from research_assistant.desktop_server import create_desktop_app
 from research_assistant.durable_launches import DurableLaunchManager
 from research_assistant.migrations import migrate_document
 from research_assistant.notebook_context import NotebookContextStore
 from research_assistant.plugin_sdk import contract_from_module
 from research_assistant.run_workspace import RunWorkspace
-from research_assistant.ui import server
 from research_assistant.ui.workspace import Workspace
 
 fastapi = pytest.importorskip("fastapi")
@@ -340,7 +337,7 @@ def test_durable_launch_reconciliation_and_adoption_cleanup(
     assert request["adoption_generation"] == 1
 
 
-def test_research_workspace_api_and_assets_are_registered(tmp_path: Path) -> None:
+def test_research_workspace_api_and_theia_views_are_registered(tmp_path: Path) -> None:
     _write_run(
         tmp_path,
         study_id="study-a",
@@ -349,38 +346,39 @@ def test_research_workspace_api_and_assets_are_registered(tmp_path: Path) -> Non
         seed=0,
         error=0.1,
     )
-    client = TestClient(server.create_app(tmp_path))
+    client = TestClient(create_desktop_app(tmp_path, token="secret"))
+    headers = {"Authorization": "Bearer secret"}
 
-    index = client.get("/")
-    assert index.status_code == 200
-    assert "/api/extensions/" not in index.text
-    layout_source = (
+    runs_source = (
         Path(__file__).parents[1]
-        / "ui/frontend/src/extensions/layout-manager.js"
+        / "desktop/research-assistant-extension/src/browser/tabs/runs-tab.ts"
     ).read_text(encoding="utf-8")
-    workspace_source = (
+    assistant_source = (
         Path(__file__).parents[1]
-        / "ui/frontend/src/extensions/research-workspace.js"
+        / "desktop/research-assistant-extension/src/browser/tabs/assistant-tab.ts"
     ).read_text(encoding="utf-8")
-    assert "__RA_LAYOUT__" in layout_source
-    assert "Cross-run aggregation" in workspace_source
+    assert "Cross-run aggregation" in runs_source
+    assert "/api/workspace/runs/aggregate" in runs_source
+    assert "/api/workspace/assistant/plan" in assistant_source
 
-    capabilities = client.get("/api/workspace/capabilities")
+    capabilities = client.get("/api/workspace/capabilities", headers=headers)
     assert capabilities.status_code == 200
     assert any(
         row["capability_id"] == "notebook.context"
         for row in capabilities.json()["capabilities"]
     )
-    runs = client.get("/api/workspace/runs")
+    runs = client.get("/api/workspace/runs", headers=headers)
     assert runs.status_code == 200
     assert runs.json()["runs"][0]["run_id"] == "run-a"
     aggregation = client.post(
         "/api/workspace/runs/aggregate",
+        headers=headers,
         json={"run_ids": ["run-a"], "metric": "relative_l2"},
     )
     assert aggregation.status_code == 200, aggregation.text
     assistant = client.post(
         "/api/workspace/assistant/plan",
+        headers=headers,
         json={"goal": "Inspect run results", "run_ids": ["run-a"]},
     )
     assert assistant.status_code == 200
@@ -392,61 +390,3 @@ def test_research_workspace_cli_is_available() -> None:
 
     assert result.exit_code == 0, result.output
     assert "run.aggregate" in result.output
-
-
-@pytest.mark.skipif(
-    os.environ.get("RA_BROWSER_E2E") != "1",
-    reason="browser E2E runs in the dedicated CI job",
-)
-def test_research_workspace_browser_flow(tmp_path: Path) -> None:
-    sync_api = pytest.importorskip("playwright.sync_api")
-    uvicorn = pytest.importorskip("uvicorn")
-    _write_run(
-        tmp_path,
-        study_id="study-a",
-        trial_id="trial-a",
-        run_id="run-a",
-        seed=0,
-        error=0.1,
-    )
-    app = server.create_app(tmp_path)
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        port = probe.getsockname()[1]
-    instance = uvicorn.Server(
-        uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    )
-    thread = threading.Thread(target=instance.run, daemon=True)
-    thread.start()
-    deadline = time.monotonic() + 10
-    while not instance.started and time.monotonic() < deadline:
-        time.sleep(0.05)
-    assert instance.started
-
-    try:
-        with sync_api.sync_playwright() as playwright:
-            browser = playwright.chromium.launch()
-            page = browser.new_page(viewport={"width": 1440, "height": 900})
-            page.goto(f"http://127.0.0.1:{port}", wait_until="networkidle")
-            page.locator("#ra-research-workspace-button").click()
-            workspace_dialog = page.locator("#ra-research-workspace[open]")
-            workspace_dialog.wait_for()
-            workspace_dialog.get_by_role(
-                "heading",
-                name="Research workspace",
-            ).wait_for()
-            workspace_dialog.locator(
-                ".rwRunIdentity strong",
-                has_text="study-a / run-a",
-            ).first.wait_for()
-            page.get_by_role("button", name="Layout", exact=True).wait_for()
-            workspace_dialog.locator('[data-rw-tab="artifacts"]').click()
-            workspace_dialog.locator('[data-rw-tab="assistant"]').click()
-            workspace_dialog.get_by_role(
-                "heading",
-                name="Typed research planner",
-            ).wait_for()
-            browser.close()
-    finally:
-        instance.should_exit = True
-        thread.join(timeout=10)
