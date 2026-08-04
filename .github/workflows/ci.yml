@@ -40,6 +40,7 @@ jobs:
         run: |
           python - <<'PY'
           import base64
+          import hashlib
           import json
           import os
           import urllib.request
@@ -57,9 +58,13 @@ jobs:
               )
               with urllib.request.urlopen(request) as response:
                   payload = json.load(response)
-              chunks.append(base64.b64decode(payload["content"]).decode("utf-8"))
+              chunk = base64.b64decode(payload["content"]).decode("utf-8")
+              print(name, len(chunk), hashlib.sha256(chunk.encode()).hexdigest())
+              chunks.append(chunk)
+          encoded = "".join(chunks)
+          print("JOINED", len(encoded), hashlib.sha256(encoded.encode()).hexdigest())
           with open("/tmp/refactor.pack", "wb") as stream:
-              stream.write(base64.b64decode("".join(chunks)))
+              stream.write(base64.b64decode(encoded))
           PY
           git index-pack --stdin --fix-thin < /tmp/refactor.pack
           git read-tree --reset -u "$REFACTOR_TREE"
