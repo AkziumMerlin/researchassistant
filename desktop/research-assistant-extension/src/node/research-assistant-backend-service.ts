@@ -33,7 +33,11 @@ implements ResearchAssistantService, BackendApplicationContribution {
     protected startup: Promise<DesktopSidecarStatus> | undefined;
     protected stderrTail: string[] = [];
 
-    async initialize(options: DesktopInitializeOptions = {}): Promise<DesktopSidecarStatus> {
+    initialize(): void {
+        // The sidecar is started lazily by the frontend after the workspace shell is ready.
+    }
+
+    async start(options: DesktopInitializeOptions = {}): Promise<DesktopSidecarStatus> {
         const workspace = options.workspace || process.env.RA_WORKSPACE || process.cwd();
         const python = options.python || process.env.RA_PYTHON || 'python3';
         const plugins = options.plugins || this.environmentPlugins();
@@ -61,7 +65,7 @@ implements ResearchAssistantService, BackendApplicationContribution {
             throw new Error(`ResearchAssistant API path must start with /api/: ${request.path}`);
         }
         if (!this.handshake) {
-            await this.initialize();
+            await this.start();
         }
         const handshake = this.handshake;
         if (!handshake) {

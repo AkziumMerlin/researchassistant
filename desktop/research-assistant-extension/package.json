@@ -25,9 +25,10 @@
   },
   "devDependencies": {
     "@theia/cli": "1.73.1",
+    "@types/node": "^24.0.0",
+    "@types/react": "^18.3.0",
     "rimraf": "^6.0.1",
-    "typescript": "^5.9.2",
-    "@types/node": "^24.0.0"
+    "typescript": "^5.9.2"
   },
   "engines": {
     "node": ">=24"

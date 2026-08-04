@@ -113,7 +113,7 @@ export class ResearchAssistantWidget extends BaseWidget {
 
     protected async start(): Promise<void> {
         try {
-            const state = await this.service.initialize();
+            const state = await this.service.start();
             this.status.textContent = `${state.productVersion || 'development'} · ${state.state}`;
             this.status.classList.toggle('error', state.state === 'failed');
             await this.showTab(this.activeTab, true);

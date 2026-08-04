@@ -29,7 +29,7 @@ export interface ApiResponse<T = unknown> {
 }
 
 export interface ResearchAssistantService {
-    initialize(options?: DesktopInitializeOptions): Promise<DesktopSidecarStatus>;
+    start(options?: DesktopInitializeOptions): Promise<DesktopSidecarStatus>;
     status(): Promise<DesktopSidecarStatus>;
     request<T = unknown>(request: ApiRequest): Promise<ApiResponse<T>>;
     shutdown(): Promise<void>;
