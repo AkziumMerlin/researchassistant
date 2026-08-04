@@ -13,24 +13,36 @@ from research_assistant import __version__
 from research_assistant.errors import ResearchAssistantError
 
 
+def _remove_legacy_frontend_routes(app) -> None:
+    """Keep the desktop sidecar headless even while legacy assets remain in the package."""
+    retired_paths = {"/", "/assets"}
+    app.router.routes = [
+        route
+        for route in app.router.routes
+        if getattr(route, "path", None) not in retired_paths
+    ]
+
+
 def create_desktop_app(
     root: str | Path,
     *,
     plugins: list[str] | None = None,
     token: str,
 ):
-    """Create the loopback-only API used by the Theia desktop backend."""
+    """Create the authenticated loopback API used by the Theia desktop backend."""
     try:
         from fastapi import Request
         from fastapi.responses import JSONResponse
     except ImportError as exc:  # pragma: no cover - optional dependency boundary
         raise ResearchAssistantError(
-            "desktop API dependencies are missing; install research-assistant[ui]"
+            "desktop API dependencies are missing; install research-assistant[desktop]"
         ) from exc
 
     from research_assistant.ui.server import create_app
 
     app = create_app(root, plugins or [], ssh_mode=False)
+    _remove_legacy_frontend_routes(app)
+    app.title = "ResearchAssistant Desktop API"
 
     @app.middleware("http")
     async def desktop_session_auth(request: Request, call_next):
@@ -45,6 +57,8 @@ def create_desktop_app(
             "ok": True,
             "version": __version__,
             "workspace": str(Path(root).expanduser().resolve()),
+            "frontend": "theia-electron",
+            "headless": True,
         }
 
     return app
@@ -68,7 +82,7 @@ def run_sidecar(
         import uvicorn
     except ImportError as exc:  # pragma: no cover - optional dependency boundary
         raise ResearchAssistantError(
-            "desktop API dependencies are missing; install research-assistant[ui]"
+            "desktop API dependencies are missing; install research-assistant[desktop]"
         ) from exc
 
     workspace = Path(root).expanduser().resolve()
