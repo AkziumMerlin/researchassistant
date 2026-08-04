@@ -4,6 +4,27 @@ All notable user-visible changes to ResearchAssistant are documented here. Versi
 Semantic Versioning; the project remains pre-1.0 while its public configuration and plugin contracts
 continue to mature.
 
+## [0.4.1] - 2026-08-04
+
+### Added
+
+- Native SSH workspaces for the Theia desktop application: Electron and Node remain local while an
+  authenticated Python sidecar runs in the selected remote Conda environment or interpreter.
+- A writable `ra-remote` Theia filesystem provider for Navigator, Monaco, file operations, and
+  bounded remote change polling.
+- Remote terminal profiles backed by OpenSSH and optional dedicated tmux sessions.
+
+### Changed
+
+- `ra connect` now launches local Theia/Electron instead of the retired browser frontend.
+- Remote profiles and reconnect behavior now apply to the desktop sidecar tunnel. Notebooks,
+  monitoring, execution, reports, and Research views all use the remote backend.
+
+### Security
+
+- Remote sidecars bind only to loopback, require a random per-session token, and expose the token
+  only to the local Theia Node backend. Node.js and Electron are not installed or run remotely.
+
 ## [0.4.0] - 2026-08-04
 
 ### Added

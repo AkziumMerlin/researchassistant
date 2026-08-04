@@ -5,6 +5,7 @@ import {
     bindViewContribution,
 } from '@theia/core/lib/browser';
 import { ContainerModule } from '@theia/core/shared/inversify';
+import { FileServiceContribution } from '@theia/filesystem/lib/browser/file-service';
 
 import {
     ResearchAssistantService,
@@ -12,6 +13,10 @@ import {
 } from '../common/research-assistant-protocol';
 import { ResearchAssistantContribution } from './research-assistant-contribution';
 import { ResearchAssistantWidget, ResearchAssistantWidgetId } from './research-assistant-widget';
+import {
+    ResearchAssistantRemoteFileServiceContribution,
+    ResearchAssistantRemoteFileSystemProvider,
+} from './remote-file-system-provider';
 
 import './style/execution.css';
 import './style/research-assistant.css';
@@ -23,6 +28,10 @@ export default new ContainerModule(bind => {
             researchAssistantServicePath,
         ),
     ).inSingletonScope();
+
+    bind(ResearchAssistantRemoteFileSystemProvider).toSelf().inSingletonScope();
+    bind(ResearchAssistantRemoteFileServiceContribution).toSelf().inSingletonScope();
+    bind(FileServiceContribution).toService(ResearchAssistantRemoteFileServiceContribution);
 
     bind(ResearchAssistantWidget).toSelf();
     bind(WidgetFactory).toDynamicValue(context => ({

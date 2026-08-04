@@ -77,12 +77,15 @@ jobs:
           test ! -d ui
           test -f desktop/research-assistant-extension/lib/browser/research-assistant-widget.js
           test -f desktop/research-assistant-extension/lib/browser/models-editor.js
+          test -f desktop/research-assistant-extension/lib/browser/remote-file-system-provider.js
           test -f desktop/research-assistant-extension/lib/browser/tabs/monitor-tab.js
           test -f desktop/research-assistant-extension/lib/browser/tabs/research-tab.js
           test -f desktop/research-assistant-extension/lib/node/research-assistant-backend-service.js
           test -f desktop/research-assistant-extension/lib/browser/style/research-assistant.css
           grep -q "overflow-y: scroll" desktop/research-assistant-extension/lib/browser/style/research-assistant.css
           grep -R "research-assistant/desktop-sidecar" desktop/research-assistant-extension/lib/node
+          grep -R "RA_REMOTE_ENDPOINT" desktop/research-assistant-extension/lib/node
+          grep -R "registerProvider(REMOTE_SCHEME" desktop/research-assistant-extension/lib/browser
           if grep -R "/api/extensions/" desktop/research-assistant-extension/lib; then
             echo "desktop bundle references the retired browser extension endpoint" >&2
             exit 1
@@ -121,6 +124,8 @@ jobs:
           required = {
               "research_assistant/desktop.py",
               "research_assistant/desktop_server.py",
+              "research_assistant/desktop_files.py",
+              "research_assistant/remote_connect.py",
               "research_assistant/cli.py",
               "research_assistant/cli_desktop.py",
               "research_assistant/cli_workbench.py",
@@ -143,6 +148,7 @@ jobs:
           cd /tmp
           /tmp/ra-wheel-smoke/bin/ra --help
           /tmp/ra-wheel-smoke/bin/ra ui --help
+          /tmp/ra-wheel-smoke/bin/ra connect --help
           test "$(/tmp/ra-wheel-smoke/bin/ra version)" = "$expected_version"
           test "$(/tmp/ra-wheel-smoke/bin/python -c 'import research_assistant; print(research_assistant.__version__)')" = "$expected_version"
 

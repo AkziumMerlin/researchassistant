@@ -22,9 +22,15 @@ ResearchAssistant Desktop (Theia + Electron)
     └── loopback-only random port with a per-session bearer token
 ```
 
-The sidecar emits one JSON handshake line, binds only to `127.0.0.1`, and requires the random
-session token on every HTTP request. The renderer cannot choose an arbitrary origin: the Node
-proxy accepts only paths under `/api/`. The sidecar is headless and does not serve `/` or `/assets`.
+The sidecar emits one JSON handshake line, binds only to a loopback interface, and requires the
+random session token on every HTTP request. The renderer cannot choose an arbitrary origin: the
+Node proxy accepts only paths under `/api/`. The sidecar is headless and does not serve `/` or
+`/assets`.
+
+For SSH workspaces, `ra connect` keeps Electron and Node local, starts only this Python sidecar on
+the server, and forwards it through an authenticated loopback tunnel. A native `ra-remote` Theia
+filesystem provider drives Explorer and Monaco; the generated terminal profile starts an
+independent remote SSH/tmux terminal. See [remote.md](remote.md).
 
 ## Development build
 

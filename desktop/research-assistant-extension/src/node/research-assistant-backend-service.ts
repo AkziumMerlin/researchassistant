@@ -10,6 +10,7 @@ import {
     ApiResponse,
     DesktopInitializeOptions,
     DesktopSidecarStatus,
+    RemoteDesktopDescriptor,
     ResearchAssistantService,
 } from '../common/research-assistant-protocol';
 
@@ -22,6 +23,14 @@ interface SidecarHandshake {
     token: string;
     workspace: string;
     pid: number;
+    connection_mode?: 'local' | 'ssh';
+}
+
+interface DesktopHealth {
+    ok: boolean;
+    version: string;
+    workspace: string;
+    connection_mode?: 'local' | 'ssh';
 }
 
 @injectable()
@@ -29,26 +38,35 @@ export class ResearchAssistantBackendService
 implements ResearchAssistantService, BackendApplicationContribution {
     protected child: ChildProcessWithoutNullStreams | undefined;
     protected handshake: SidecarHandshake | undefined;
+    protected endpoint: string | undefined;
+    protected token: string | undefined;
+    protected remote: RemoteDesktopDescriptor | undefined;
     protected current: DesktopSidecarStatus = { state: 'stopped' };
     protected startup: Promise<DesktopSidecarStatus> | undefined;
     protected stderrTail: string[] = [];
+    protected stopping = false;
+    protected readonly remoteSpecEnvironment = process.env.RA_REMOTE_SPEC;
+    protected readonly remoteEndpointEnvironment = process.env.RA_REMOTE_ENDPOINT;
+    protected readonly remoteTokenEnvironment = process.env.RA_REMOTE_TOKEN;
 
     initialize(): void {
-        // The sidecar is started lazily by the frontend after the workspace shell is ready.
+        // Keep the bearer token in the Node service only. Terminals and other child
+        // processes launched later must not inherit the desktop API credentials.
+        delete process.env.RA_REMOTE_TOKEN;
+        delete process.env.RA_REMOTE_ENDPOINT;
+        delete process.env.RA_REMOTE_SPEC;
     }
 
     async start(options: DesktopInitializeOptions = {}): Promise<DesktopSidecarStatus> {
-        const workspace = options.workspace || process.env.RA_WORKSPACE || process.cwd();
-        const python = options.python || process.env.RA_PYTHON || 'python3';
-        const plugins = options.plugins || this.environmentPlugins();
-        if (this.handshake?.workspace === workspace && this.child && !this.child.killed) {
+        if (this.current.state === 'running' && this.endpoint && this.token) {
             return this.current;
         }
         if (this.startup) {
             return this.startup;
         }
-        await this.shutdown();
-        this.startup = this.startSidecar(workspace, python, plugins);
+        this.startup = this.environmentRemote()
+            ? this.startRemote()
+            : this.startLocal(options);
         try {
             return await this.startup;
         } finally {
@@ -64,17 +82,160 @@ implements ResearchAssistantService, BackendApplicationContribution {
         if (!request.path.startsWith('/api/')) {
             throw new Error(`ResearchAssistant API path must start with /api/: ${request.path}`);
         }
-        if (!this.handshake) {
-            await this.start();
+        await this.start();
+        const retries = this.remote?.reconnect ? 45 : 1;
+        let lastError: unknown;
+        for (let attempt = 0; attempt < retries; attempt += 1) {
+            try {
+                const response = await this.requestOnce<T>(request);
+                if (this.remote && this.current.state === 'reconnecting') {
+                    this.current = {
+                        ...this.current,
+                        state: 'running',
+                        detail: undefined,
+                    };
+                }
+                return response;
+            } catch (error) {
+                lastError = error;
+                if (!this.remote || !this.isTransportError(error) || attempt + 1 >= retries) {
+                    throw error;
+                }
+                this.current = {
+                    ...this.current,
+                    state: 'reconnecting',
+                    detail: 'SSH transport is reconnecting',
+                };
+                await this.delay(Math.min(2000, 200 + attempt * 150));
+            }
         }
-        const handshake = this.handshake;
-        if (!handshake) {
+        throw lastError;
+    }
+
+    async shutdown(): Promise<void> {
+        this.stopping = true;
+        const child = this.child;
+        this.child = undefined;
+        this.handshake = undefined;
+        this.endpoint = undefined;
+        this.token = undefined;
+        this.remote = undefined;
+        this.startup = undefined;
+        if (child && !child.killed) {
+            child.kill('SIGTERM');
+            await new Promise<void>(resolve => {
+                const timer = setTimeout(() => {
+                    if (!child.killed) {
+                        child.kill('SIGKILL');
+                    }
+                    resolve();
+                }, 3000);
+                child.once('exit', () => {
+                    clearTimeout(timer);
+                    resolve();
+                });
+            });
+        }
+        this.current = { state: 'stopped' };
+        this.stopping = false;
+    }
+
+    async onStop(): Promise<void> {
+        await this.shutdown();
+    }
+
+    protected environmentPlugins(): string[] {
+        try {
+            const value = JSON.parse(process.env.RA_PLUGINS || '[]');
+            return Array.isArray(value) ? value.map(String) : [];
+        } catch {
+            return [];
+        }
+    }
+
+    protected environmentRemote(): RemoteDesktopDescriptor | undefined {
+        const raw = this.remoteSpecEnvironment;
+        if (!raw) {
+            return undefined;
+        }
+        try {
+            const value = JSON.parse(raw) as RemoteDesktopDescriptor;
+            if (value.version !== 1 || value.mode !== 'ssh' || !value.target || !value.workspace) {
+                throw new Error('invalid remote descriptor');
+            }
+            return value;
+        } catch (error) {
+            throw new Error(`invalid RA_REMOTE_SPEC: ${String(error)}`);
+        }
+    }
+
+    protected async startRemote(): Promise<DesktopSidecarStatus> {
+        const remote = this.environmentRemote();
+        const endpoint = this.remoteEndpointEnvironment;
+        const token = this.remoteTokenEnvironment;
+        if (!remote || !endpoint || !token) {
+            throw new Error('remote desktop environment is incomplete');
+        }
+        this.remote = remote;
+        this.endpoint = endpoint.replace(/\/$/, '');
+        this.token = token;
+        this.current = {
+            state: 'starting',
+            mode: 'ssh',
+            workspace: remote.workspace,
+            target: remote.target,
+        };
+        let lastError: unknown;
+        for (let attempt = 0; attempt < 80; attempt += 1) {
+            try {
+                const health = await this.requestOnce<DesktopHealth>({
+                    path: '/api/desktop/health',
+                });
+                this.current = {
+                    state: 'running',
+                    mode: 'ssh',
+                    workspace: health.body.workspace || remote.workspace,
+                    target: remote.target,
+                    productVersion: health.body.version,
+                };
+                return this.current;
+            } catch (error) {
+                lastError = error;
+                if (!this.isTransportError(error)) {
+                    break;
+                }
+                await this.delay(250);
+            }
+        }
+        this.current = {
+            state: 'failed',
+            mode: 'ssh',
+            workspace: remote.workspace,
+            target: remote.target,
+            detail: String(lastError),
+        };
+        throw lastError;
+    }
+
+    protected async startLocal(options: DesktopInitializeOptions): Promise<DesktopSidecarStatus> {
+        const workspace = options.workspace || process.env.RA_WORKSPACE || process.cwd();
+        const python = options.python || process.env.RA_PYTHON || 'python3';
+        const plugins = options.plugins || this.environmentPlugins();
+        await this.shutdown();
+        this.stopping = false;
+        return this.startSidecar(workspace, python, plugins);
+    }
+
+    protected async requestOnce<T>(request: ApiRequest): Promise<ApiResponse<T>> {
+        const endpoint = this.endpoint;
+        const token = this.token;
+        if (!endpoint || !token) {
             throw new Error(this.current.detail || 'ResearchAssistant sidecar did not start');
         }
-        const response = await fetch(`http://${handshake.host}:${handshake.port}${request.path}`, {
+        const response = await fetch(`${endpoint}${request.path}`, {
             method: request.method || 'GET',
             headers: {
-                Authorization: `Bearer ${handshake.token}`,
+                Authorization: `Bearer ${token}`,
                 ...(request.body === undefined ? {} : { 'Content-Type': 'application/json' }),
             },
             body: request.body === undefined ? undefined : JSON.stringify(request.body),
@@ -99,42 +260,6 @@ implements ResearchAssistantService, BackendApplicationContribution {
         return { status: response.status, body: body as T };
     }
 
-    async shutdown(): Promise<void> {
-        const child = this.child;
-        this.child = undefined;
-        this.handshake = undefined;
-        this.startup = undefined;
-        if (child && !child.killed) {
-            child.kill('SIGTERM');
-            await new Promise<void>(resolve => {
-                const timer = setTimeout(() => {
-                    if (!child.killed) {
-                        child.kill('SIGKILL');
-                    }
-                    resolve();
-                }, 3000);
-                child.once('exit', () => {
-                    clearTimeout(timer);
-                    resolve();
-                });
-            });
-        }
-        this.current = { state: 'stopped' };
-    }
-
-    async onStop(): Promise<void> {
-        await this.shutdown();
-    }
-
-    protected environmentPlugins(): string[] {
-        try {
-            const value = JSON.parse(process.env.RA_PLUGINS || '[]');
-            return Array.isArray(value) ? value.map(String) : [];
-        } catch {
-            return [];
-        }
-    }
-
     protected async startSidecar(
         workspace: string,
         python: string,
@@ -153,7 +278,7 @@ implements ResearchAssistantService, BackendApplicationContribution {
             args.push('--plugin', plugin);
         }
         this.stderrTail = [];
-        this.current = { state: 'starting', workspace };
+        this.current = { state: 'starting', mode: 'local', workspace };
         const child = spawn(python, args, {
             env: process.env,
             stdio: ['pipe', 'pipe', 'pipe'],
@@ -162,14 +287,17 @@ implements ResearchAssistantService, BackendApplicationContribution {
         child.stderr.setEncoding('utf8');
         child.stderr.on('data', chunk => this.captureStderr(String(chunk)));
         child.once('exit', (code, signal) => {
-            if (this.child !== child) {
+            if (this.child !== child || this.stopping) {
                 return;
             }
             this.child = undefined;
             this.handshake = undefined;
+            this.endpoint = undefined;
+            this.token = undefined;
             const detail = `desktop sidecar exited (${signal || (code ?? 'unknown')})`;
             this.current = {
                 state: code === 0 ? 'stopped' : 'failed',
+                mode: 'local',
                 workspace,
                 detail: this.stderrTail.length ? `${detail}: ${this.stderrTail.join('\n')}` : detail,
             };
@@ -184,8 +312,11 @@ implements ResearchAssistantService, BackendApplicationContribution {
                 throw new Error('desktop sidecar returned an invalid session token');
             }
             this.handshake = handshake;
+            this.endpoint = `http://${handshake.host}:${handshake.port}`;
+            this.token = token;
             this.current = {
                 state: 'running',
+                mode: 'local',
                 workspace: handshake.workspace,
                 productVersion: handshake.product_version,
                 pid: handshake.pid,
@@ -198,6 +329,7 @@ implements ResearchAssistantService, BackendApplicationContribution {
             const detail = error instanceof Error ? error.message : String(error);
             this.current = {
                 state: 'failed',
+                mode: 'local',
                 workspace,
                 detail: this.stderrTail.length ? `${detail}: ${this.stderrTail.join('\n')}` : detail,
             };
@@ -237,5 +369,14 @@ implements ResearchAssistantService, BackendApplicationContribution {
         if (this.stderrTail.length > 40) {
             this.stderrTail.splice(0, this.stderrTail.length - 40);
         }
+    }
+
+    protected isTransportError(error: unknown): boolean {
+        return error instanceof TypeError
+            || (error instanceof Error && /fetch failed|ECONN|socket|network/i.test(error.message));
+    }
+
+    protected delay(milliseconds: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, milliseconds));
     }
 }
