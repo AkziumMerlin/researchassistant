@@ -44,6 +44,12 @@ def resolve_desktop_command(
     root = Path(package_root or Path(__file__).resolve().parents[2]).resolve()
     selected = executable or env.get("RA_DESKTOP_EXECUTABLE")
     workspace_path = Path(workspace).expanduser().resolve()
+    if not workspace_path.exists():
+        raise ResearchAssistantError(f"workspace does not exist: {workspace_path}")
+    if not workspace_path.is_dir() and workspace_path.suffix != ".theia-workspace":
+        raise ResearchAssistantError(
+            f"workspace must be a directory or .theia-workspace file: {workspace_path}"
+        )
 
     if selected:
         binary = Path(selected).expanduser().resolve()
@@ -77,6 +83,7 @@ def desktop_environment(
     *,
     plugins: Sequence[str] = (),
     environ: Mapping[str, str] | None = None,
+    extra: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     result = dict(os.environ if environ is None else environ)
     result.update(
@@ -86,6 +93,8 @@ def desktop_environment(
             "RA_PLUGINS": json.dumps(list(dict.fromkeys(plugins))),
         }
     )
+    if extra:
+        result.update({str(key): str(value) for key, value in extra.items()})
     return result
 
 
@@ -95,10 +104,15 @@ def launch_desktop(
     plugins: Sequence[str] = (),
     executable: str | Path | None = None,
     development: bool = False,
+    extra_environment: Mapping[str, str] | None = None,
 ) -> int:
     root = Path(workspace).expanduser().resolve()
-    if not root.is_dir():
-        raise ResearchAssistantError(f"workspace directory does not exist: {root}")
+    if not root.exists():
+        raise ResearchAssistantError(f"workspace does not exist: {root}")
+    if not root.is_dir() and root.suffix != ".theia-workspace":
+        raise ResearchAssistantError(
+            f"workspace must be a directory or .theia-workspace file: {root}"
+        )
     command = resolve_desktop_command(
         root,
         executable=executable,
@@ -107,7 +121,7 @@ def launch_desktop(
     completed = subprocess.run(
         command.argv,
         cwd=command.cwd,
-        env=desktop_environment(root, plugins=plugins),
+        env=desktop_environment(root, plugins=plugins, extra=extra_environment),
         check=False,
     )
     if completed.returncode:

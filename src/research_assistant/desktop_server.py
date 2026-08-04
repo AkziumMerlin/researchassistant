@@ -28,6 +28,7 @@ def create_desktop_app(
     *,
     plugins: list[str] | None = None,
     token: str,
+    connection_mode: str = "local",
 ):
     """Create the authenticated loopback API used by the Theia desktop backend."""
     try:
@@ -40,7 +41,10 @@ def create_desktop_app(
 
     from research_assistant.ui.server import create_app
 
-    app = create_app(root, plugins or [], ssh_mode=False)
+    app = create_app(root, plugins or [], ssh_mode=connection_mode == "ssh")
+    from research_assistant.desktop_files import register_desktop_file_routes
+
+    register_desktop_file_routes(app)
     _remove_legacy_frontend_routes(app)
     app.title = "ResearchAssistant Desktop API"
 
@@ -59,6 +63,7 @@ def create_desktop_app(
             "workspace": str(Path(root).expanduser().resolve()),
             "frontend": "theia-electron",
             "headless": True,
+            "connection_mode": connection_mode,
         }
 
     return app
@@ -68,7 +73,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="ResearchAssistant desktop API sidecar")
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--plugin", action="append", default=[])
-    parser.add_argument("--token", default=None)
+    parser.add_argument("--token", default=os.environ.get("RA_DESKTOP_TOKEN"))
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=0)
+    parser.add_argument(
+        "--connection-mode", choices=("local", "ssh"), default="local"
+    )
     return parser
 
 
@@ -77,6 +87,9 @@ def run_sidecar(
     *,
     plugins: list[str] | None = None,
     token: str | None = None,
+    host: str = "127.0.0.1",
+    port: int = 0,
+    connection_mode: str = "local",
 ) -> None:
     try:
         import uvicorn
@@ -85,13 +98,24 @@ def run_sidecar(
             "desktop API dependencies are missing; install research-assistant[desktop]"
         ) from exc
 
+    if host not in {"127.0.0.1", "localhost", "::1"}:
+        raise ResearchAssistantError("desktop sidecar only binds to a loopback interface")
+    if port < 0 or port > 65535:
+        raise ResearchAssistantError("desktop sidecar port must be between 0 and 65535")
     workspace = Path(root).expanduser().resolve()
     session_token = token or secrets.token_urlsafe(32)
-    app = create_desktop_app(workspace, plugins=plugins or [], token=session_token)
+    app = create_desktop_app(
+        workspace,
+        plugins=plugins or [],
+        token=session_token,
+        connection_mode=connection_mode,
+    )
 
-    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    bind_host = "::1" if host == "::1" else "127.0.0.1"
+    family = socket.AF_INET6 if bind_host == "::1" else socket.AF_INET
+    listener = socket.socket(family, socket.SOCK_STREAM)
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    listener.bind(("127.0.0.1", 0))
+    listener.bind((bind_host, port))
     listener.listen(128)
     port = int(listener.getsockname()[1])
 
@@ -99,15 +123,16 @@ def run_sidecar(
         "protocol": "research-assistant/desktop-sidecar",
         "version": 1,
         "product_version": __version__,
-        "host": "127.0.0.1",
+        "host": bind_host,
         "port": port,
         "token": session_token,
         "workspace": str(workspace),
         "pid": os.getpid(),
+        "connection_mode": connection_mode,
     }
     print(json.dumps(handshake, sort_keys=True), flush=True)
 
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
+    config = uvicorn.Config(app, host=bind_host, port=port, log_level="warning")
     server = uvicorn.Server(config)
     server.run(sockets=[listener])
 
@@ -115,7 +140,14 @@ def run_sidecar(
 def main(argv: list[str] | None = None) -> None:
     args = _parser().parse_args(argv)
     try:
-        run_sidecar(args.root, plugins=args.plugin, token=args.token)
+        run_sidecar(
+            args.root,
+            plugins=args.plugin,
+            token=args.token,
+            host=args.host,
+            port=args.port,
+            connection_mode=args.connection_mode,
+        )
     except ResearchAssistantError as exc:
         print(f"error: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc

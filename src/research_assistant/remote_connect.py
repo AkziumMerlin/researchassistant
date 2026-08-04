@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
 import re
+import secrets
+import selectors
 import shlex
 import shutil
 import socket
@@ -13,7 +16,6 @@ import threading
 import time
 import urllib.error
 import urllib.request
-import webbrowser
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,6 +23,7 @@ from typing import Any, TextIO
 
 from research_assistant import __version__
 from research_assistant.artifacts import atomic_write_json, utc_now
+from research_assistant.desktop import launch_desktop
 from research_assistant.errors import ResearchAssistantError
 
 
@@ -30,6 +33,10 @@ class RemoteConnectionError(ResearchAssistantError):
 
 def _config_root() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+
+
+def _cache_root() -> Path:
+    return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
 
 
 class RemoteProfileCatalog:
@@ -123,7 +130,6 @@ class RemoteConnectSpec:
     remote_python: str | None = None
     local_port: int = 0
     remote_port: int = 0
-    open_browser: bool = True
     reconnect: bool = True
     startup_timeout: float = 45.0
     ssh_options: tuple[str, ...] = ()
@@ -131,6 +137,9 @@ class RemoteConnectSpec:
         default=(1.0, 2.0, 5.0, 10.0, 20.0),
         repr=False,
     )
+    # Retained for source compatibility with 0.3.x profiles/callers. The Theia
+    # implementation never opens a browser.
+    open_browser: bool = False
 
     def validate(self) -> None:
         if not self.target.strip():
@@ -166,23 +175,6 @@ def _quote_remote_path(value: str) -> str:
     return shlex.quote(value)
 
 
-_REMOTE_SERVER_CODE = (
-    "import sys;"
-    "import research_assistant.cli_workbench;"
-    "import uvicorn;"
-    "from research_assistant.ui.server import create_app;"
-    "root=sys.argv[1];"
-    "port=int(sys.argv[2]);"
-    "plugins=sys.argv[3:];"
-    "uvicorn.run("
-    "create_app(root, plugins, ssh_mode=True),"
-    "host='127.0.0.1',"
-    "port=port,"
-    "log_level='info'"
-    ")"
-)
-
-
 def _python_invocation(spec: RemoteConnectSpec, arguments: list[str]) -> str:
     rendered = " ".join(shlex.quote(value) for value in arguments)
     if spec.conda_env:
@@ -209,19 +201,31 @@ def _python_invocation(spec: RemoteConnectSpec, arguments: list[str]) -> str:
     return f"exec python3 {rendered}"
 
 
-def build_remote_ui_command(spec: RemoteConnectSpec, remote_port: int) -> str:
+def build_remote_ui_command(
+    spec: RemoteConnectSpec,
+    remote_port: int,
+    token: str = "research-assistant-session",
+) -> str:
+    """Build the remote command that starts only the authenticated Python sidecar."""
     spec.validate()
-    # Resolve the user-supplied path once with `cd`, then pass the current directory
-    # to Python. Passing a relative path again after `cd` would resolve it twice.
     arguments = [
-        "-c",
-        _REMOTE_SERVER_CODE,
+        "-m",
+        "research_assistant.desktop_server",
+        "--root",
         ".",
+        "--host",
+        "127.0.0.1",
+        "--port",
         str(remote_port),
-        *spec.plugins,
+        "--connection-mode",
+        "ssh",
     ]
+    for plugin in spec.plugins:
+        arguments.extend(["--plugin", plugin])
     invocation = _python_invocation(spec, arguments)
     return (
+        "IFS= read -r RA_DESKTOP_TOKEN || exit 125; "
+        "export RA_DESKTOP_TOKEN; "
         f"cd {_quote_remote_path(spec.workspace)} || exit $?; "
         "export RA_MANAGED_REMOTE=1; "
         f"{invocation}"
@@ -233,8 +237,10 @@ def build_ssh_argv(
     *,
     local_port: int,
     remote_port: int,
+    token: str = "research-assistant-session",
     ssh_executable: str = "ssh",
 ) -> list[str]:
+    del token
     command = build_remote_ui_command(spec, remote_port)
     argv = [
         ssh_executable,
@@ -260,8 +266,9 @@ _EXPECTED_FORWARD_REFUSAL = re.compile(
 
 
 class _RemoteOutput:
-    def __init__(self, stream: TextIO) -> None:
+    def __init__(self, stream: TextIO, *, prefix: str = "remote") -> None:
         self.stream = stream
+        self.prefix = prefix
         self.lines: deque[str] = deque(maxlen=80)
         self.thread = threading.Thread(target=self._pump, daemon=True)
 
@@ -279,42 +286,163 @@ class _RemoteOutput:
             if _EXPECTED_FORWARD_REFUSAL.fullmatch(line.rstrip("\n")):
                 continue
             self.lines.append(line)
-            print(f"[remote] {line}", end="", file=sys.stderr, flush=True)
+            print(f"[{self.prefix}] {line}", end="", file=sys.stderr, flush=True)
 
 
-def _read_bootstrap(local_port: int, timeout: float = 1.0) -> dict[str, Any]:
-    request = urllib.request.Request(
-        f"http://127.0.0.1:{local_port}/api/bootstrap",
-        headers={"Accept": "application/json"},
+@dataclass(frozen=True)
+class PreparedRemoteDesktop:
+    workspace_id: str
+    cache_dir: Path
+    workspace_file: Path
+    terminal_wrapper: Path
+    local_port: int
+    token: str
+    descriptor: dict[str, Any]
+
+
+def _workspace_id(spec: RemoteConnectSpec) -> str:
+    payload = json.dumps(
+        {
+            "target": spec.target,
+            "workspace": spec.workspace,
+            "conda_env": spec.conda_env,
+            "remote_python": spec.remote_python,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:16]
+
+
+def _remote_shell_invocation(spec: RemoteConnectSpec) -> str:
+    if spec.conda_env:
+        return (
+            'CONDA_EXE="${CONDA_EXE:-$(command -v conda || true)}"; '
+            'if [ -z "$CONDA_EXE" ]; then '
+            'for candidate in "$HOME/miniconda3/bin/conda" '
+            '"$HOME/anaconda3/bin/conda" "$HOME/miniforge3/bin/conda" '
+            '"$HOME/mambaforge/bin/conda"; do '
+            'if [ -x "$candidate" ]; then CONDA_EXE="$candidate"; break; fi; done; fi; '
+            'if [ ! -x "$CONDA_EXE" ]; then echo "conda not found" >&2; exit 127; fi; '
+            f'SHELL_COMMAND=$(printf "%s " "$CONDA_EXE" run --no-capture-output '
+            f'-n {shlex.quote(spec.conda_env)} bash --noprofile --norc -i); '
+            'if command -v tmux >/dev/null 2>&1; then '
+            'exec tmux -L "$2" new-session -A -s "$1" -c . "$SHELL_COMMAND"; fi; '
+            'exec "$CONDA_EXE" run --no-capture-output '
+            f'-n {shlex.quote(spec.conda_env)} bash --noprofile --norc -i'
+        )
+    if spec.remote_python:
+        python = _quote_remote_path(spec.remote_python)
+        return (
+            f'PYTHON={python}; '
+            'BIN_DIR=$(dirname "$PYTHON"); export PATH="$BIN_DIR:$PATH"; '
+            'if command -v tmux >/dev/null 2>&1; then '
+            'exec tmux -L "$2" new-session -A -s "$1" -c . '
+            '"exec bash --noprofile --norc -i"; fi; '
+            'exec bash --noprofile --norc -i'
+        )
+    return (
+        'if command -v tmux >/dev/null 2>&1; then '
+        'exec tmux -L "$2" new-session -A -s "$1" -c .; fi; '
+        'exec "${SHELL:-bash}" -i'
     )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    if not isinstance(payload, dict):
-        raise RemoteConnectionError("remote bootstrap returned an unexpected payload")
-    return payload
 
 
-def _wait_until_ready(
-    process: subprocess.Popen[str],
-    local_port: int,
-    startup_timeout: float,
-) -> dict[str, Any]:
-    deadline = time.monotonic() + startup_timeout
-    last_error: Exception | None = None
-    while time.monotonic() < deadline:
-        return_code = process.poll()
-        if return_code is not None:
-            raise RemoteConnectionError(
-                f"SSH session exited before the remote UI became ready (exit {return_code})"
-            )
-        try:
-            return _read_bootstrap(local_port)
-        except (OSError, ValueError, urllib.error.URLError) as exc:
-            last_error = exc
-            time.sleep(0.25)
-    detail = f": {last_error}" if last_error else ""
-    raise RemoteConnectionError(
-        f"remote UI did not become ready within {startup_timeout:g} seconds{detail}"
+def _write_terminal_wrapper(path: Path, spec: RemoteConnectSpec, workspace_id: str) -> None:
+    ssh = shutil.which("ssh") or "ssh"
+    remote_body = (
+        f"cd {_quote_remote_path(spec.workspace)} || exit $?; "
+        f"{_remote_shell_invocation(spec)}"
+    )
+    ssh_arguments = [
+        ssh,
+        "-tt",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+    ]
+    for option in spec.ssh_options:
+        ssh_arguments.extend(["-o", option])
+    ssh_arguments.extend(
+        [spec.target, "sh", "-lc", shlex.quote(remote_body), "sh", '"$session"', workspace_id]
+    )
+    command = " ".join(
+        value if value in {'"$session"'} else shlex.quote(value) for value in ssh_arguments
+    )
+    script = f"""#!/bin/sh
+set -u
+unset RA_REMOTE_TOKEN RA_REMOTE_ENDPOINT RA_REMOTE_SPEC
+session="ra-{workspace_id}-$$"
+delay=1
+while :; do
+    {command}
+    status=$?
+    if [ "$status" -eq 0 ]; then
+        exit 0
+    fi
+    printf 'Remote terminal disconnected; reconnecting in %ss...\\n' "$delay" >&2
+    sleep "$delay"
+    if [ "$delay" -lt 10 ]; then delay=$((delay * 2)); fi
+done
+"""
+    path.write_text(script, encoding="utf-8")
+    path.chmod(0o700)
+
+
+def prepare_remote_desktop(spec: RemoteConnectSpec) -> PreparedRemoteDesktop:
+    spec.validate()
+    workspace_id = _workspace_id(spec)
+    cache_dir = (_cache_root() / "research-assistant" / "remote-desktop" / workspace_id).resolve()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    local_port = spec.local_port or find_free_local_port()
+    token = secrets.token_urlsafe(32)
+    terminal_wrapper = cache_dir / "remote-terminal.sh"
+    _write_terminal_wrapper(terminal_wrapper, spec, workspace_id)
+
+    descriptor = {
+        "version": 1,
+        "mode": "ssh",
+        "workspaceId": workspace_id,
+        "target": spec.target,
+        "workspace": spec.workspace,
+        "condaEnv": spec.conda_env,
+        "remotePython": spec.remote_python,
+        "plugins": list(spec.plugins),
+        "localPort": local_port,
+        "reconnect": spec.reconnect,
+        "sshOptions": list(spec.ssh_options),
+    }
+    workspace_file = cache_dir / "remote.theia-workspace"
+    atomic_write_json(
+        workspace_file,
+        {
+            "folders": [
+                {
+                    "name": f"{spec.target}:{spec.workspace}",
+                    "uri": f"ra-remote://{workspace_id}/",
+                }
+            ],
+            "settings": {
+                "terminal.integrated.profiles.linux": {
+                    "ResearchAssistant SSH": {
+                        "path": str(terminal_wrapper),
+                        "args": [],
+                    }
+                },
+                "terminal.integrated.defaultProfile.linux": "ResearchAssistant SSH",
+            },
+        },
+    )
+    atomic_write_json(cache_dir / "connection.json", descriptor)
+    return PreparedRemoteDesktop(
+        workspace_id=workspace_id,
+        cache_dir=cache_dir,
+        workspace_file=workspace_file,
+        terminal_wrapper=terminal_wrapper,
+        local_port=local_port,
+        token=token,
+        descriptor=descriptor,
     )
 
 
@@ -329,113 +457,228 @@ def _terminate(process: subprocess.Popen[str]) -> None:
         process.wait(timeout=5)
 
 
-def _diagnostic_version(bootstrap: dict[str, Any]) -> str | None:
-    diagnostics = bootstrap.get("diagnostics")
-    if not isinstance(diagnostics, dict):
-        return None
-    version = diagnostics.get("research_assistant")
-    return str(version) if version is not None else None
-
-
-def connect_remote(spec: RemoteConnectSpec) -> None:
-    spec.validate()
-    ssh_executable = shutil.which("ssh")
-    if ssh_executable is None:
-        raise RemoteConnectionError("OpenSSH client is not installed or not available on PATH")
-
-    local_port = spec.local_port or find_free_local_port()
-    local_url = f"http://127.0.0.1:{local_port}"
-    ready_once = False
-    browser_opened = False
-    reconnect_index = 0
-
-    while True:
-        remote_port = spec.remote_port or choose_remote_port()
-        argv = build_ssh_argv(
-            spec,
-            local_port=local_port,
-            remote_port=remote_port,
-            ssh_executable=ssh_executable,
-        )
-        print(
-            f"Connecting {spec.target} · {spec.workspace} "
-            f"(local {local_port}, remote {remote_port})"
-        )
-        process = subprocess.Popen(
-            argv,
-            stdin=None,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        assert process.stdout is not None
-        output = _RemoteOutput(process.stdout)
-        output.start()
-
-        try:
-            bootstrap = _wait_until_ready(process, local_port, spec.startup_timeout)
-        except KeyboardInterrupt:
-            _terminate(process)
-            output.join()
-            return
-        except RemoteConnectionError as exc:
-            _terminate(process)
-            output.join()
-            tail = output.tail()
-            if not ready_once:
-                suffix = f"\nRemote output:\n{tail}" if tail else ""
-                raise RemoteConnectionError(f"{exc}{suffix}") from exc
-            if not spec.reconnect:
-                raise
-            delay = spec.reconnect_delays[
-                min(reconnect_index, len(spec.reconnect_delays) - 1)
-            ]
-            reconnect_index += 1
-            print(f"Connection lost; retrying in {delay:g}s", file=sys.stderr)
-            time.sleep(delay)
-            continue
-
-        ready_once = True
-        reconnect_index = 0
-        remote_version = _diagnostic_version(bootstrap)
-        if remote_version and remote_version != __version__:
-            print(
-                "warning: local ResearchAssistant "
-                f"{__version__} differs from remote {remote_version}",
-                file=sys.stderr,
-            )
-        connection = bootstrap.get("connection")
-        hostname = connection.get("hostname") if isinstance(connection, dict) else None
-        label = f" on {hostname}" if hostname else ""
-        print(f"Remote workspace ready{label}: {local_url}")
-        if spec.open_browser and not browser_opened:
-            webbrowser.open_new_tab(local_url)
-            browser_opened = True
-
-        try:
-            return_code = process.wait()
-        except KeyboardInterrupt:
-            _terminate(process)
-            output.join()
-            return
-        output.join()
-
-        if not spec.reconnect:
-            if return_code != 0:
-                tail = output.tail()
-                suffix = f"\nRemote output:\n{tail}" if tail else ""
+def _wait_for_handshake(
+    process: subprocess.Popen[str],
+    *,
+    token: str,
+    timeout: float,
+) -> dict[str, Any]:
+    assert process.stdout is not None
+    selector = selectors.DefaultSelector()
+    selector.register(process.stdout, selectors.EVENT_READ)
+    deadline = time.monotonic() + timeout
+    try:
+        while time.monotonic() < deadline:
+            return_code = process.poll()
+            if return_code is not None:
                 raise RemoteConnectionError(
-                    f"SSH session exited with code {return_code}{suffix}"
+                    "SSH session exited before the remote sidecar became ready "
+                    f"(exit {return_code})"
                 )
-            return
+            events = selector.select(timeout=min(0.25, max(0.0, deadline - time.monotonic())))
+            if not events:
+                continue
+            line = process.stdout.readline()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                print(f"[remote] {line}", end="", file=sys.stderr, flush=True)
+                continue
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("protocol") != "research-assistant/desktop-sidecar":
+                continue
+            if payload.get("version") != 1:
+                raise RemoteConnectionError("unsupported remote desktop-sidecar protocol")
+            if payload.get("token") != token:
+                raise RemoteConnectionError("remote sidecar returned an invalid session token")
+            return payload
+    finally:
+        selector.close()
+    raise RemoteConnectionError(
+        f"remote sidecar did not become ready within {timeout:g} seconds"
+    )
 
-        delay = spec.reconnect_delays[
-            min(reconnect_index, len(spec.reconnect_delays) - 1)
-        ]
-        reconnect_index += 1
-        print(
-            f"SSH session ended with code {return_code}; reconnecting in {delay:g}s",
-            file=sys.stderr,
+
+def _read_health(local_port: int, token: str, timeout: float = 2.0) -> dict[str, Any]:
+    request = urllib.request.Request(
+        f"http://127.0.0.1:{local_port}/api/desktop/health",
+        headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise RemoteConnectionError("remote desktop health returned an unexpected payload")
+    return payload
+
+
+class RemoteDesktopTunnel:
+    """Maintain one fixed local endpoint while reconnecting the SSH transport."""
+
+    def __init__(self, spec: RemoteConnectSpec, prepared: PreparedRemoteDesktop) -> None:
+        self.spec = spec
+        self.prepared = prepared
+        self._stop = threading.Event()
+        self._ready = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._lock = threading.Lock()
+        self._process: subprocess.Popen[str] | None = None
+        self._error: Exception | None = None
+        self.handshake: dict[str, Any] | None = None
+
+    @property
+    def endpoint(self) -> str:
+        return f"http://127.0.0.1:{self.prepared.local_port}"
+
+    def start(self) -> None:
+        if shutil.which("ssh") is None:
+            raise RemoteConnectionError("OpenSSH client is not installed or not available on PATH")
+        self._thread.start()
+        if not self._ready.wait(timeout=self.spec.startup_timeout + 2):
+            self.stop()
+            if self._error:
+                raise RemoteConnectionError(str(self._error)) from self._error
+            raise RemoteConnectionError("timed out starting the remote desktop connection")
+        if self._error:
+            self.stop()
+            raise RemoteConnectionError(str(self._error)) from self._error
+
+    def stop(self) -> None:
+        self._stop.set()
+        with self._lock:
+            process = self._process
+        if process is not None:
+            _terminate(process)
+        if self._thread.is_alive():
+            self._thread.join(timeout=7)
+
+    def _run(self) -> None:
+        reconnect_index = 0
+        connected_once = False
+        while not self._stop.is_set():
+            remote_port = self.spec.remote_port or choose_remote_port()
+            argv = build_ssh_argv(
+                self.spec,
+                local_port=self.prepared.local_port,
+                remote_port=remote_port,
+                token=self.prepared.token,
+                ssh_executable=shutil.which("ssh") or "ssh",
+            )
+            print(
+                f"Connecting {self.spec.target} · {self.spec.workspace} "
+                f"(local {self.prepared.local_port}, remote {remote_port})"
+            )
+            process = subprocess.Popen(
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+            )
+            with self._lock:
+                self._process = process
+            assert process.stdin is not None
+            process.stdin.write(f"{self.prepared.token}\n")
+            process.stdin.flush()
+            process.stdin.close()
+            assert process.stderr is not None
+            stderr = _RemoteOutput(process.stderr)
+            stderr.start()
+            try:
+                handshake = _wait_for_handshake(
+                    process,
+                    token=self.prepared.token,
+                    timeout=self.spec.startup_timeout,
+                )
+                deadline = time.monotonic() + 5
+                last_error: Exception | None = None
+                while time.monotonic() < deadline:
+                    try:
+                        _read_health(self.prepared.local_port, self.prepared.token)
+                        last_error = None
+                        break
+                    except (OSError, ValueError, urllib.error.URLError) as exc:
+                        last_error = exc
+                        time.sleep(0.1)
+                if last_error is not None:
+                    raise RemoteConnectionError(
+                        f"remote sidecar tunnel is not healthy: {last_error}"
+                    )
+                self.handshake = handshake
+                connected_once = True
+                reconnect_index = 0
+                self._ready.set()
+                remote_version = handshake.get("product_version")
+                if remote_version and remote_version != __version__:
+                    print(
+                        f"warning: local ResearchAssistant {__version__} differs from "
+                        f"remote {remote_version}",
+                        file=sys.stderr,
+                    )
+                print(f"Remote desktop backend ready: {self.endpoint}")
+                return_code = process.wait()
+                if self._stop.is_set():
+                    break
+                if not self.spec.reconnect:
+                    raise RemoteConnectionError(
+                        f"SSH session exited with code {return_code}: {stderr.tail()}"
+                    )
+                delay = self.spec.reconnect_delays[
+                    min(reconnect_index, len(self.spec.reconnect_delays) - 1)
+                ]
+                reconnect_index += 1
+                print(
+                    f"SSH session ended with code {return_code}; reconnecting in {delay:g}s",
+                    file=sys.stderr,
+                )
+                self._stop.wait(delay)
+            except Exception as exc:
+                _terminate(process)
+                if not connected_once:
+                    self._error = exc
+                    self._ready.set()
+                    break
+                if not self.spec.reconnect or self._stop.is_set():
+                    self._error = exc
+                    break
+                delay = self.spec.reconnect_delays[
+                    min(reconnect_index, len(self.spec.reconnect_delays) - 1)
+                ]
+                reconnect_index += 1
+                print(f"Remote connection failed; retrying in {delay:g}s: {exc}", file=sys.stderr)
+                self._stop.wait(delay)
+            finally:
+                stderr.join()
+                with self._lock:
+                    if self._process is process:
+                        self._process = None
+
+
+def connect_remote(
+    spec: RemoteConnectSpec,
+    *,
+    executable: str | Path | None = None,
+    development: bool = False,
+) -> None:
+    """Open a local Theia/Electron window backed by a remote Python sidecar."""
+    prepared = prepare_remote_desktop(spec)
+    tunnel = RemoteDesktopTunnel(spec, prepared)
+    tunnel.start()
+    environment = {
+        "RA_REMOTE_ENDPOINT": tunnel.endpoint,
+        "RA_REMOTE_TOKEN": prepared.token,
+        "RA_REMOTE_SPEC": json.dumps(prepared.descriptor, sort_keys=True),
+    }
+    try:
+        launch_desktop(
+            prepared.workspace_file,
+            plugins=(),
+            executable=executable,
+            development=development,
+            extra_environment=environment,
         )
-        time.sleep(delay)
+    finally:
+        tunnel.stop()

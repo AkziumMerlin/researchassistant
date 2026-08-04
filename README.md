@@ -109,7 +109,21 @@ renderer communicates through Theia JSON-RPC and never receives the token or an 
 endpoint. See [docs/desktop.md](docs/desktop.md) for development, packaging and security details.
 
 The former browser application is no longer the primary or supported UI. The Python FastAPI layer
-is retained as an internal headless service for the desktop application and future remote agents.
+is retained as an internal headless service for the desktop application and SSH agents.
+
+Open a server workspace while keeping Theia/Electron local:
+
+```bash
+ra connect gpu-server \
+  --workspace /home/akzium/project \
+  --conda-env KNO \
+  --plugin my_project.plugin \
+  --dev
+```
+
+The remote machine runs only the authenticated Python sidecar. Explorer, Monaco, terminals,
+notebooks, monitoring, launches, reports, and Research views operate on the remote workspace. See
+[docs/remote.md](docs/remote.md).
 
 ## Create configurations from the registry
 

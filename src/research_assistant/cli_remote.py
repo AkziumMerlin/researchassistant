@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -111,7 +112,6 @@ def connect_command(
         int,
         typer.Option("--remote-port", min=0, max=65535, help="0 chooses a high port."),
     ] = 0,
-    open_browser: Annotated[bool, typer.Option("--open/--no-open")] = True,
     reconnect: Annotated[
         bool,
         typer.Option("--reconnect/--no-reconnect"),
@@ -131,8 +131,16 @@ def connect_command(
         str | None,
         typer.Option("--save", help="Save the resolved connection as a profile."),
     ] = None,
+    executable: Annotated[
+        Path | None,
+        typer.Option("--executable", help="Explicit local ResearchAssistant desktop executable."),
+    ] = None,
+    development: Annotated[
+        bool,
+        typer.Option("--dev", help="Run the local Theia application from source."),
+    ] = False,
 ) -> None:
-    """Open a remote ResearchAssistant workspace in the local browser."""
+    """Open a remote workspace in the local Eclipse Theia desktop application."""
     try:
         (
             target,
@@ -155,7 +163,6 @@ def connect_command(
             remote_python=resolved_python,
             local_port=local_port,
             remote_port=remote_port,
-            open_browser=open_browser,
             reconnect=reconnect,
             startup_timeout=startup_timeout,
             ssh_options=tuple(ssh_option or []),
@@ -170,7 +177,7 @@ def connect_command(
                 remote_python=resolved_python,
                 plugins=resolved_plugins,
             )
-        connect_remote(spec)
+        connect_remote(spec, executable=executable, development=development)
     except ResearchAssistantError as exc:
         _abort(exc)
 

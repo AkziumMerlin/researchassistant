@@ -3,6 +3,20 @@ export const ResearchAssistantService = Symbol('ResearchAssistantService');
 
 export type ApiMethod = 'GET' | 'POST' | 'PUT' | 'DELETE';
 
+export interface RemoteDesktopDescriptor {
+    version: 1;
+    mode: 'ssh';
+    workspaceId: string;
+    target: string;
+    workspace: string;
+    condaEnv?: string;
+    remotePython?: string;
+    plugins: string[];
+    localPort: number;
+    reconnect: boolean;
+    sshOptions: string[];
+}
+
 export interface DesktopInitializeOptions {
     workspace?: string;
     python?: string;
@@ -10,10 +24,12 @@ export interface DesktopInitializeOptions {
 }
 
 export interface DesktopSidecarStatus {
-    state: 'stopped' | 'starting' | 'running' | 'failed';
+    state: 'stopped' | 'starting' | 'running' | 'reconnecting' | 'failed';
+    mode?: 'local' | 'ssh';
     workspace?: string;
     productVersion?: string;
     pid?: number;
+    target?: string;
     detail?: string;
 }
 

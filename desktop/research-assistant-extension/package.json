@@ -1,6 +1,6 @@
 {
   "name": "@research-assistant/theia-extension",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "ResearchAssistant workbench contributions for Eclipse Theia.",
   "license": "MIT",
   "main": "lib/common/index.js",

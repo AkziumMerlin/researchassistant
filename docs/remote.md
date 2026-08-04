@@ -1,12 +1,52 @@
-# Managed remote workspaces
+# Managed SSH workspaces
 
-`ra connect` opens a ResearchAssistant workspace on an SSH host without starting a browser on the
-server and without requiring a manually maintained `ssh -L` command.
+`ra connect` opens a remote project in the local Eclipse Theia/Electron application. Electron and
+Node.js remain on the local machine. The server needs only Python, OpenSSH access, and the
+ResearchAssistant package with its `desktop` dependencies.
 
-The browser always runs on the local machine. The remote ResearchAssistant HTTP server remains
-bound to the remote loopback interface, while the local CLI owns the SSH process and its loopback
-forwarding. SSH authentication, host aliases, keys, `ProxyJump`, and agent forwarding remain the
-responsibility of OpenSSH and `~/.ssh/config`.
+```text
+local machine                              SSH server
+──────────────────────────────────────     ─────────────────────────────────
+Theia/Electron
+├── Navigator + Monaco   ─ file API ───┐   Python desktop sidecar
+├── Research views      ─ domain API ──┼─► ├── workspace files
+├── notebooks           ─ kernel API ──┤   ├── runs/checkpoints/reports
+├── monitor             ─ monitor API ─┤   ├── Jupyter kernels
+└── terminal ─ independent SSH/tmux ───┘   └── CPU/GPU/process monitor
+
+Python `ra connect` owns the loopback tunnel and reconnect loop.
+```
+
+The remote sidecar binds to `127.0.0.1` on the server and requires a random per-session bearer
+token. The token is passed only to the local Theia Node backend; renderer code never receives it.
+The custom `ra-remote` filesystem provider exposes the remote project to the normal Theia
+Navigator and Monaco editor. No browser server, Electron runtime, or Node installation is started
+on the server.
+
+## Install
+
+Install and build the desktop application locally:
+
+```bash
+conda activate researchassistant
+cd /path/to/researchassistant
+python -m pip install -e '.[desktop,reports]'
+npm install --prefix desktop
+npm run build --prefix desktop
+```
+
+Install the matching Python version in the server environment. Node.js is not required remotely:
+
+```bash
+ssh gpu-server
+conda activate KNO
+cd /path/to/researchassistant
+python -m pip install -e '.[desktop,reports]'
+ra version
+```
+
+The local and remote `ra version` values should match. `ra connect` prints a warning when they do
+not.
 
 ## One-off connection
 
@@ -14,73 +54,70 @@ responsibility of OpenSSH and `~/.ssh/config`.
 ra connect gpu-server \
   --workspace /home/akzium/Kuramoto-Neural-Operator \
   --conda-env KNO \
-  --plugin ra_project.plugin
+  --plugin ra_project.plugin \
+  --dev
 ```
 
-`gpu-server` may be a host alias from `~/.ssh/config`. By default ResearchAssistant:
+`gpu-server` may be an alias from `~/.ssh/config`. `--dev` runs the locally built Theia source
+application. A packaged executable can be selected with `--executable`.
 
-1. chooses an unused local port and a high remote port;
-2. starts the remote UI inside the selected environment;
-3. forwards only `127.0.0.1` on both machines;
-4. waits for `/api/bootstrap` to become available;
-5. opens the resulting local URL in the local browser;
-6. reconnects with bounded backoff after a transient SSH failure.
+The command:
 
-Workspace paths may be absolute or relative. Relative paths are resolved exactly once from the SSH
-login directory. For example, `--workspace KNO-paper/` resolves to `$HOME/KNO-paper` for a normal
-home-directory SSH login.
+1. creates a local `.theia-workspace` containing an `ra-remote://` workspace root;
+2. chooses unused local and remote loopback ports;
+3. starts `research_assistant.desktop_server` in the selected remote environment;
+4. creates an authenticated SSH tunnel to that sidecar;
+5. launches local Electron/Theia;
+6. reconnects the tunnel with bounded backoff after transient SSH failures;
+7. terminates only the temporary sidecar and tunnel when the desktop window closes.
 
-Use an explicit interpreter instead of Conda when needed:
+Detached schedulers, workers, notebook kernel records, run artifacts, and tmux sessions remain on
+the server.
+
+Use an explicit remote interpreter instead of Conda when needed:
 
 ```bash
 ra connect gpu-server \
   --workspace /srv/project \
-  --remote-python /srv/venvs/project/bin/python
+  --remote-python /srv/venvs/project/bin/python \
+  --dev
 ```
 
-The selected remote environment must contain ResearchAssistant and the optional UI dependencies:
+Workspace paths may be absolute or relative. Relative paths are resolved once from the SSH login
+directory.
 
-```bash
-python -m pip install -e '.[ui]'
-```
+## Remote terminal
 
-The UI extra installs Uvicorn's WebSocket transport, which is required by the browser terminal.
-Existing environments created with an older UI extra can be repaired with:
-
-```bash
-python -m pip install 'uvicorn[standard]'
-```
-
-For terminal tabs to survive `ra connect` reconnects and remote UI-backend restarts, install tmux on
-the server. A Conda installation can be kept inside the selected environment:
+The generated Theia workspace selects a local terminal profile that starts `ssh -tt` into the
+remote workspace. When `tmux` exists on the server, every terminal tab uses a dedicated tmux
+session and reconnects to that session after a transient SSH interruption. Without tmux, the
+terminal remains remote but is not persistent.
 
 ```bash
 conda install -n KNO -c conda-forge tmux
 ```
 
-ResearchAssistant creates a dedicated tmux server for each resolved workspace. It does not reuse or
-modify ordinary user tmux sessions. New UI backends rediscover the persistent tabs automatically.
-Closing a terminal tab explicitly terminates its corresponding tmux session.
-
-Closing `ra connect` stops only the temporary UI server and SSH connection. Detached schedulers,
-workers, and tmux-backed terminal sessions continue running and are rediscovered after reconnecting.
+The terminal shell is started inside the selected Conda environment. ResearchAssistant uses a
+dedicated tmux server name derived from the remote workspace and does not modify the user's normal
+tmux server.
 
 ## Profiles
 
-Save a connection while opening it:
+Save a profile while connecting:
 
 ```bash
 ra connect gpu-server \
   --workspace /home/akzium/Kuramoto-Neural-Operator \
   --conda-env KNO \
   --plugin ra_project.plugin \
-  --save kno
+  --save kno \
+  --dev
 ```
 
-Subsequent connections need only the profile name:
+Reconnect with:
 
 ```bash
-ra connect kno
+ra connect kno --dev
 ```
 
 Profiles can also be managed explicitly:
@@ -96,30 +133,27 @@ ra remote list
 ra remote remove kno
 ```
 
-Profiles are stored under `${XDG_CONFIG_HOME:-~/.config}/research-assistant/remotes.json`. They
-contain only the SSH target, remote path, environment selector, and plugin names. Passwords,
-private keys, and SSH tokens are never stored by ResearchAssistant.
+Profiles are stored under
+`${XDG_CONFIG_HOME:-~/.config}/research-assistant/remotes.json`. They contain only SSH aliases,
+paths, environment selectors, and plugin names. Passwords, private keys, bearer tokens, and
+`ssh-agent` state are never stored.
 
 ## Connection options
 
-Use fixed ports only when external tooling requires them:
+Use fixed ports when required by local policy:
 
 ```bash
-ra connect kno --local-port 8765 --remote-port 38765
+ra connect kno --local-port 41000 --remote-port 41001 --dev
 ```
 
-Disable browser opening or automatic reconnect:
+Disable automatic reconnect:
 
 ```bash
-ra connect kno --no-open
-ra connect kno --no-reconnect
+ra connect kno --no-reconnect --dev
 ```
 
-Additional OpenSSH options can be supplied without bypassing the normal SSH configuration:
+Pass additional OpenSSH options without bypassing `~/.ssh/config`:
 
 ```bash
-ra connect kno --ssh-option ProxyJump=bastion
+ra connect kno --ssh-option ProxyJump=bastion --dev
 ```
-
-The older `ra ui --ssh` workflow remains available as a compatibility fallback, but `ra connect`
-is the normal remote entry point.

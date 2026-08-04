@@ -17,7 +17,7 @@ def test_theia_replaces_retired_vite_workbench() -> None:
     assert dependencies["@theia/navigator"] == "1.73.1"
     assert dependencies["@theia/monaco"] == "1.73.1"
     assert dependencies["@theia/terminal"] == "1.73.1"
-    assert dependencies["@research-assistant/theia-extension"] == "0.4.0"
+    assert dependencies["@research-assistant/theia-extension"] == "0.4.1"
 
 
 def test_models_editor_uses_parameterized_graph_contract() -> None:
@@ -55,3 +55,24 @@ def test_frontend_is_registered_as_normal_theia_extension() -> None:
     assert "./style/research-assistant.css" in source
     assert "./style/execution.css" in source
     assert "/api/extensions/" not in source
+
+
+def test_remote_workspace_uses_native_theia_filesystem_provider() -> None:
+    provider = (EXTENSION / "remote-file-system-provider.ts").read_text(encoding="utf-8")
+    frontend = (EXTENSION / "research-assistant-frontend-module.ts").read_text(encoding="utf-8")
+    backend = (
+        DESKTOP
+        / "research-assistant-extension"
+        / "src"
+        / "node"
+        / "research-assistant-backend-service.ts"
+    ).read_text(encoding="utf-8")
+
+    assert "implements FileSystemProvider" in provider
+    assert "service.registerProvider(REMOTE_SCHEME" in provider
+    assert "/api/desktop/files/read" in provider
+    assert "/api/desktop/files/write" in provider
+    assert "FileServiceContribution" in frontend
+    assert "RA_REMOTE_ENDPOINT" in backend
+    assert "RA_REMOTE_TOKEN" in backend
+    assert "reconnecting" in backend
