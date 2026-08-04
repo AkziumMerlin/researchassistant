@@ -1,0 +1,30 @@
+name: UI parity snapshot
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    if: github.event.pull_request.head.ref == 'feature/theia-remote-ssh'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/theia-remote-ssh
+          fetch-depth: 0
+      - name: Archive old and current UI trees
+        run: |
+          git fetch origin feature/research-workspace-v2:refs/remotes/origin/feature/research-workspace-v2
+          mkdir -p /tmp/ui-parity
+          git archive --format=tar.gz --output=/tmp/ui-parity/old-ui.tar.gz origin/feature/research-workspace-v2 \
+            ui src tests pyproject.toml README.md docs .github/workflows/ci.yml
+          git archive --format=tar.gz --output=/tmp/ui-parity/theia-ui.tar.gz HEAD \
+            desktop src tests pyproject.toml README.md docs .github/workflows/ci.yml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ui-parity-snapshot
+          path: /tmp/ui-parity
+          retention-days: 1
