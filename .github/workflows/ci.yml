@@ -3,19 +3,16 @@ name: Apply frontend refactor
 on:
   push:
     branches: [feature/research-workspace-v2]
-  pull_request:
-    branches: [main]
 
 permissions:
   contents: write
 
 concurrency:
-  group: apply-frontend-refactor-${{ github.ref }}
+  group: apply-frontend-refactor
   cancel-in-progress: true
 
 jobs:
   apply:
-    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,21 +24,10 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: ui/frontend/package-lock.json
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
       - name: Import verified refactor tree
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PACK_PART_0: 514275791a3171f451475ecc9433e08fdbbe4c15
-          PACK_PART_1: 9e4481af62aae7ad31f6488fadce10a354b20170
-          PACK_PART_2: d7b81d56ce81961c53416c519773358245c9c8ec
-          PACK_PART_3: 9a7327d69649b63709c831f5b3304994f3959d2a
-          PACK_PART_4: bf0203349cf9b5c5908692c5f27c924faa1fbc72
-          PACK_PART_5: 8dc4f85add0054220397df17843cb73f97fa104d
-          FIX_VITE: 3d4fc9c508c9c476043e1a63a451d77e5b87e84a
-          FIX_LAYOUT: 52e4feb311f0518f2e16b3591ae0cd5637d3e541
           REFACTOR_TREE: d75cd487b64aacea8263f56c6d98998a8a862df3
         run: |
           python - <<'PY'
@@ -50,6 +36,7 @@ jobs:
           import json
           import os
           import urllib.request
+          from pathlib import Path
 
           def fetch_blob(sha: str) -> bytes:
               request = urllib.request.Request(
@@ -61,35 +48,21 @@ jobs:
                   },
               )
               with urllib.request.urlopen(request) as response:
-                  payload = json.load(response)
-              return base64.b64decode(payload["content"])
+                  return base64.b64decode(json.load(response)["content"])
 
-          expected = [
-              (4000, "49728557d51a599dbb1d9e4c8681bbe9f395f7033a7cd58051756d656086d4db"),
-              (4000, "9e34e96faec616be43ec5357a556125b1069bb08831e2b75a6bbc0638f138981"),
-              (4000, "dd42c8cc25e97d4338bc63e8d58dcc339b54705e84d8dfd15811422a26a73e78"),
-              (4000, "c53a5fbf05986397f166e0142e8346e0161c1230c5d1c1e5733c855f80af789a"),
-              (3000, "08830ea44302b825f8a19b9303cbfc2a98be899fbd75357de5b1284794e7b655"),
-              (17404, "ba92297b1d9729a2f96e19e5f8cdb27a79198b39b359182ae497a596f4130bd4"),
+          parts = [
+              "514275791a3171f451475ecc9433e08fdbbe4c15",
+              "9e4481af62aae7ad31f6488fadce10a354b20170",
+              "d7b81d56ce81961c53416c519773358245c9c8ec",
+              "9a7327d69649b63709c831f5b3304994f3959d2a",
+              "bf0203349cf9b5c5908692c5f27c924faa1fbc72",
+              "8dc4f85add0054220397df17843cb73f97fa104d",
           ]
-          chunks = []
-          for index, (expected_length, expected_hash) in enumerate(expected):
-              chunk = fetch_blob(os.environ[f"PACK_PART_{index}"]).decode("utf-8")
-              actual_hash = hashlib.sha256(chunk.encode()).hexdigest()
-              if len(chunk) != expected_length or actual_hash != expected_hash:
-                  raise SystemExit(
-                      f"transport part {index} failed integrity check: "
-                      f"length={len(chunk)} sha256={actual_hash}"
-                  )
-              chunks.append(chunk)
-          encoded = "".join(chunks)
-          actual_hash = hashlib.sha256(encoded.encode()).hexdigest()
-          if len(encoded) != 36404 or actual_hash != "32c5e105a379933af0a202b836b871d54e8f02f2a7953be2b269fb51dcc821b9":
-              raise SystemExit(
-                  f"transport pack failed integrity check: length={len(encoded)} sha256={actual_hash}"
-              )
-          with open("/tmp/refactor.pack", "wb") as stream:
-              stream.write(base64.b64decode(encoded))
+          encoded = b"".join(fetch_blob(sha) for sha in parts)
+          digest = hashlib.sha256(encoded).hexdigest()
+          if len(encoded) != 36404 or digest != "32c5e105a379933af0a202b836b871d54e8f02f2a7953be2b269fb51dcc821b9":
+              raise SystemExit(f"invalid transport: length={len(encoded)} sha256={digest}")
+          Path("/tmp/refactor.pack").write_bytes(base64.b64decode(encoded))
           PY
           git index-pack --stdin --fix-thin < /tmp/refactor.pack
           git read-tree --reset -u "$REFACTOR_TREE"
@@ -97,11 +70,10 @@ jobs:
           import base64
           import json
           import os
-          from pathlib import Path
           import urllib.request
+          from pathlib import Path
 
-          def write_blob(env_name: str, path: str) -> None:
-              sha = os.environ[env_name]
+          def write_blob(sha: str, path: str) -> None:
               request = urllib.request.Request(
                   f"https://api.github.com/repos/{os.environ['REPOSITORY']}/git/blobs/{sha}",
                   headers={
@@ -111,11 +83,11 @@ jobs:
                   },
               )
               with urllib.request.urlopen(request) as response:
-                  payload = json.load(response)
-              Path(path).write_bytes(base64.b64decode(payload["content"]))
+                  content = base64.b64decode(json.load(response)["content"])
+              Path(path).write_bytes(content)
 
-          write_blob("FIX_VITE", "ui/frontend/vite.config.js")
-          write_blob("FIX_LAYOUT", "ui/frontend/src/extensions/layout-manager.js")
+          write_blob("3d4fc9c508c9c476043e1a63a451d77e5b87e84a", "ui/frontend/vite.config.js")
+          write_blob("52e4feb311f0518f2e16b3591ae0cd5637d3e541", "ui/frontend/src/extensions/layout-manager.js")
           PY
       - name: Build bundled frontend
         run: |
@@ -127,6 +99,7 @@ jobs:
           node --check ui/frontend/src/terminal-runtime.js
       - name: Commit and push refactor
         run: |
+          git checkout HEAD -- .github/workflows/ci.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
