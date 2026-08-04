@@ -40,6 +40,8 @@ jobs:
           PACK_PART_3: 9a7327d69649b63709c831f5b3304994f3959d2a
           PACK_PART_4: bf0203349cf9b5c5908692c5f27c924faa1fbc72
           PACK_PART_5: 8dc4f85add0054220397df17843cb73f97fa104d
+          FIX_VITE: 3d4fc9c508c9c476043e1a63a451d77e5b87e84a
+          FIX_LAYOUT: 52e4feb311f0518f2e16b3591ae0cd5637d3e541
           REFACTOR_TREE: d75cd487b64aacea8263f56c6d98998a8a862df3
         run: |
           python - <<'PY'
@@ -48,6 +50,19 @@ jobs:
           import json
           import os
           import urllib.request
+
+          def fetch_blob(sha: str) -> bytes:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{os.environ['REPOSITORY']}/git/blobs/{sha}",
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request) as response:
+                  payload = json.load(response)
+              return base64.b64decode(payload["content"])
 
           expected = [
               (4000, "49728557d51a599dbb1d9e4c8681bbe9f395f7033a7cd58051756d656086d4db"),
@@ -59,18 +74,7 @@ jobs:
           ]
           chunks = []
           for index, (expected_length, expected_hash) in enumerate(expected):
-              sha = os.environ[f"PACK_PART_{index}"]
-              request = urllib.request.Request(
-                  f"https://api.github.com/repos/{os.environ['REPOSITORY']}/git/blobs/{sha}",
-                  headers={
-                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                  },
-              )
-              with urllib.request.urlopen(request) as response:
-                  payload = json.load(response)
-              chunk = base64.b64decode(payload["content"]).decode("utf-8")
+              chunk = fetch_blob(os.environ[f"PACK_PART_{index}"]).decode("utf-8")
               actual_hash = hashlib.sha256(chunk.encode()).hexdigest()
               if len(chunk) != expected_length or actual_hash != expected_hash:
                   raise SystemExit(
@@ -89,6 +93,30 @@ jobs:
           PY
           git index-pack --stdin --fix-thin < /tmp/refactor.pack
           git read-tree --reset -u "$REFACTOR_TREE"
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+          import urllib.request
+
+          def write_blob(env_name: str, path: str) -> None:
+              sha = os.environ[env_name]
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{os.environ['REPOSITORY']}/git/blobs/{sha}",
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request) as response:
+                  payload = json.load(response)
+              Path(path).write_bytes(base64.b64decode(payload["content"]))
+
+          write_blob("FIX_VITE", "ui/frontend/vite.config.js")
+          write_blob("FIX_LAYOUT", "ui/frontend/src/extensions/layout-manager.js")
+          PY
       - name: Build bundled frontend
         run: |
           npm ci --prefix ui/frontend
