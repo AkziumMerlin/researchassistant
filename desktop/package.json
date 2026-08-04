@@ -1,7 +1,7 @@
 {
   "name": "research-assistant-desktop-workspace",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.4.2",
   "workspaces": [
     "application",
     "research-assistant-extension"

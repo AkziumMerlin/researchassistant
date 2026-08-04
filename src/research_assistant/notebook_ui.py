@@ -127,6 +127,22 @@ def register_notebook_routes(app) -> None:
     def kernel_shutdown(kernel_id: str) -> dict[str, Any]:
         return manager.shutdown(kernel_id)
 
+    @app.get("/api/notebooks/kernels/{kernel_id}/events")
+    def kernel_events(
+        kernel_id: str,
+        cell_id: str | None = Query(default=None),
+        parent_id: str | None = Query(default=None),
+        limit: int = Query(default=500, ge=1, le=2000),
+    ) -> dict[str, Any]:
+        session = manager.require(kernel_id)
+        with session.lock:
+            events = list(session.recent_events)
+        if cell_id is not None:
+            events = [event for event in events if event.get("cell_id") == cell_id]
+        if parent_id is not None:
+            events = [event for event in events if event.get("parent_id") == parent_id]
+        return {"events": events[-limit:], "state": session.state}
+
     @app.get("/api/notebooks/kernels/{kernel_id}/log")
     def kernel_log(kernel_id: str, limit: int = Query(default=200_000, ge=1, le=2_000_000)):
         session = manager.require(kernel_id)

@@ -52,6 +52,47 @@ interface FilePayload {
 }
 
 const ROOT_TEMPLATE = '__root__';
+
+function fuzzyScore(query: string, value: string): number {
+    if (!query) return 0;
+    let cursor = -1;
+    let gaps = 0;
+    for (const character of query) {
+        const next = value.indexOf(character, cursor + 1);
+        if (next < 0) return -1;
+        if (cursor >= 0) gaps += next - cursor - 1;
+        cursor = next;
+    }
+    return Math.max(0, 100 - gaps);
+}
+
+function componentScore(component: ComponentSpec, query: string): number {
+    const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!terms.length) return 0;
+    const name = component.name.toLowerCase();
+    const shortName = name.split('/').at(-1) || name;
+    const category = String(component.metadata?.category || '').toLowerCase();
+    const provider = String(component.provider || '').toLowerCase();
+    const description = String(component.description || '').toLowerCase();
+    const haystack = `${name} ${shortName} ${category} ${provider} ${description}`;
+    let score = 0;
+    for (const term of terms) {
+        if (shortName === term || name === term) score += 1200;
+        else if (shortName.startsWith(term)) score += 900 - shortName.length;
+        else if (name.startsWith(term)) score += 800 - name.length * 0.1;
+        else if (shortName.includes(term)) score += 650 - shortName.indexOf(term);
+        else if (name.includes(term)) score += 560 - name.indexOf(term) * 0.1;
+        else if (category.includes(term)) score += 430;
+        else if (provider.includes(term)) score += 400;
+        else if (description.includes(term)) score += 320;
+        else {
+            const fuzzy = fuzzyScore(term, haystack);
+            if (fuzzy < 0) return -1;
+            score += 120 + fuzzy;
+        }
+    }
+    return score;
+}
 const IDENTIFIER = /^[A-Za-z][A-Za-z0-9_-]*$/;
 
 function object(value: unknown): JsonObject {
@@ -161,6 +202,9 @@ export class ModelsEditor {
     protected readonly pathInput: HTMLInputElement;
     protected readonly templateSelect: HTMLSelectElement;
     protected readonly componentSearch: HTMLInputElement;
+    protected readonly componentCategory: HTMLSelectElement;
+    protected readonly componentProvider: HTMLSelectElement;
+    protected readonly componentStatus: HTMLElement;
 
     constructor(
         protected readonly view: ResearchAssistantWidget,
@@ -178,7 +222,10 @@ export class ModelsEditor {
         this.status = view.element('span', 'ra-model-status', 'New architecture');
         this.pathInput = view.input('architectures/model.json', this.path);
         this.templateSelect = view.element('select', 'theia-select');
-        this.componentSearch = view.input('Filter components');
+        this.componentSearch = view.input('Search name, provider, category or description');
+        this.componentCategory = view.element('select', 'theia-select');
+        this.componentProvider = view.element('select', 'theia-select');
+        this.componentStatus = view.element('small', 'ra-help');
         this.build(architectures);
         this.renderAll();
     }
@@ -211,8 +258,29 @@ export class ModelsEditor {
         }
 
         const paletteToolbar = this.view.element('div', 'ra-model-palette-toolbar');
+        const categories = [...new Set(this.components.map(component =>
+            String(component.metadata?.category || 'Modules')))].sort();
+        const providers = [...new Set(this.components.map(component =>
+            String(component.provider || 'unknown')))].sort();
+        this.populateFilter(this.componentCategory, 'All categories', categories);
+        this.populateFilter(this.componentProvider, 'All providers', providers);
         this.componentSearch.oninput = () => this.renderPalette();
-        paletteToolbar.append(this.componentSearch);
+        this.componentCategory.onchange = () => this.renderPalette();
+        this.componentProvider.onchange = () => this.renderPalette();
+        this.componentSearch.onkeydown = event => this.componentSearchKeydown(event);
+        this.host.addEventListener('keydown', event => {
+            if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+                event.preventDefault();
+                this.componentSearch.focus();
+                this.componentSearch.select();
+            }
+        });
+        paletteToolbar.append(
+            this.componentSearch,
+            this.componentCategory,
+            this.componentProvider,
+            this.componentStatus,
+        );
 
         const templateToolbar = this.view.element('div', 'ra-model-template-toolbar');
         this.templateSelect.onchange = () => {
@@ -321,29 +389,96 @@ export class ModelsEditor {
         this.templateSelect.value = this.selectedTemplate;
     }
 
-    protected renderPalette(): void {
-        const needle = this.componentSearch.value.trim().toLowerCase();
-        this.palette.replaceChildren();
-        const grouped = new Map<string, ComponentSpec[]>();
-        for (const component of this.components) {
-            const category = String(component.metadata?.category || 'Modules');
-            if (needle && !`${component.name} ${component.description || ''} ${category}`.toLowerCase().includes(needle)) {
-                continue;
-            }
-            grouped.set(category, [...(grouped.get(category) || []), component]);
+    protected populateFilter(
+        target: HTMLSelectElement,
+        emptyLabel: string,
+        values: string[],
+    ): void {
+        const empty = this.view.element('option', undefined, emptyLabel);
+        empty.value = '';
+        target.append(empty);
+        for (const value of values) {
+            const option = this.view.element('option', undefined, value);
+            option.value = value;
+            target.append(option);
         }
-        for (const [category, components] of [...grouped].sort(([left], [right]) => left.localeCompare(right))) {
+    }
+
+    protected componentSearchKeydown(event: KeyboardEvent): void {
+        const buttons = Array.from(
+            this.palette.querySelectorAll<HTMLButtonElement>('.ra-model-palette-item'),
+        );
+        if (!buttons.length) return;
+        const active = document.activeElement instanceof HTMLButtonElement
+            ? buttons.indexOf(document.activeElement)
+            : -1;
+        if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            buttons[Math.min(buttons.length - 1, active + 1)]?.focus();
+        } else if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            buttons[Math.max(0, active < 0 ? 0 : active - 1)]?.focus();
+        } else if (event.key === 'Enter') {
+            event.preventDefault();
+            buttons[Math.max(0, active)]?.click();
+        } else if (event.key === 'Escape') {
+            this.componentSearch.value = '';
+            this.componentCategory.value = '';
+            this.componentProvider.value = '';
+            this.renderPalette();
+        }
+    }
+
+    protected renderPalette(): void {
+        const query = this.componentSearch.value.trim().toLowerCase();
+        const categoryFilter = this.componentCategory.value;
+        const providerFilter = this.componentProvider.value;
+        this.palette.replaceChildren();
+        const matches = this.components.map(component => ({
+            component,
+            category: String(component.metadata?.category || 'Modules'),
+            provider: String(component.provider || 'unknown'),
+            score: componentScore(component, query),
+        })).filter(item =>
+            item.score >= 0
+            && (!categoryFilter || item.category === categoryFilter)
+            && (!providerFilter || item.provider === providerFilter)
+        ).sort((left, right) =>
+            right.score - left.score || left.component.name.localeCompare(right.component.name)
+        );
+        const grouped = new Map<string, typeof matches>();
+        for (const item of matches.slice(0, 250)) {
+            grouped.set(item.category, [...(grouped.get(item.category) || []), item]);
+        }
+        for (const [category, components] of [...grouped].sort(([left], [right]) =>
+            left.localeCompare(right))) {
             this.palette.append(this.view.element('div', 'ra-model-palette-group', category));
-            for (const component of components.sort((left, right) => left.name.localeCompare(right.name))) {
+            for (const item of components) {
+                const component = item.component;
                 const button = this.view.element('button', 'ra-model-palette-item');
                 button.type = 'button';
+                button.title = `${component.name} · ${item.provider}`;
                 button.append(
-                    this.view.element('strong', undefined, component.name.split('/').at(-1) || component.name),
-                    this.view.element('small', undefined, component.description || component.name),
+                    this.view.element(
+                        'strong',
+                        undefined,
+                        component.name.split('/').at(-1) || component.name,
+                    ),
+                    this.view.element(
+                        'small',
+                        undefined,
+                        `${item.provider} · ${component.description || component.name}`,
+                    ),
                 );
                 button.onclick = () => this.addComponent(component);
                 this.palette.append(button);
             }
+        }
+        this.componentStatus.textContent = matches.length > 250
+            ? `250 of ${matches.length} components · Ctrl+K`
+            : `${matches.length} component(s) · Ctrl+K`;
+        if (!matches.length) {
+            this.palette.append(this.view.element('div', 'ra-empty', 'No components match.'));
         }
     }
 

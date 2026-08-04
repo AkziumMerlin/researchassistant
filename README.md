@@ -87,6 +87,32 @@ The generated example contains one component, one custom stage, three seeds, and
 evaluation stage. Running the same command again resumes the already completed runs instead of
 duplicating them.
 
+## Updating
+
+ResearchAssistant deliberately separates server source updates from local desktop updates.
+
+On an SSH server, update only the repository used by the selected Python/Conda environment:
+
+```bash
+ra update server --repo /path/to/researchassistant
+```
+
+This performs a clean `git fetch --prune` followed by a fast-forward-only merge. It never invokes
+`pip`, `npm`, Theia, Electron or a package builder.
+
+On the local desktop machine, update source, reinstall the active Python environment and rebuild
+the Theia/Electron application:
+
+```bash
+conda activate researchassistant
+ra update local --repo /path/to/researchassistant
+```
+
+The local command runs the same fast-forward-only Git update, `pip install -e
+'.[desktop,reports]'`, `npm ci` when a lockfile exists (otherwise `npm install`), the production Theia build and Electron packaging. Use
+`--no-package` for a development-only build, or `--dry-run` to inspect either plan. Both commands
+reject dirty worktrees and detached HEADs by default.
+
 ## ResearchAssistant Desktop
 
 Open the current project in the Eclipse Theia desktop application:

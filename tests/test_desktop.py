@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from research_assistant.desktop import desktop_environment, resolve_desktop_command
@@ -117,3 +120,41 @@ def test_resolve_desktop_command_accepts_theia_workspace_file(tmp_path: Path) ->
     )
 
     assert command.argv[-1] == str(workspace.resolve())
+
+
+def test_desktop_api_exposes_pollable_notebook_events(tmp_path: Path) -> None:
+    app = create_desktop_app(tmp_path, token="secret")
+    client = TestClient(app)
+    response = client.get(
+        "/api/notebooks/kernels/missing/events",
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 400
+    assert "kernel" in response.json()["detail"].lower()
+
+
+def test_desktop_notebook_events_filter_one_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = create_desktop_app(tmp_path, token="secret")
+    session = SimpleNamespace(
+        lock=threading.RLock(),
+        state="idle",
+        recent_events=[
+            {"type": "execution_complete", "cell_id": "cell-a", "parent_id": "old"},
+            {"type": "stream", "cell_id": "cell-a", "parent_id": "new"},
+            {"type": "execution_complete", "cell_id": "cell-a", "parent_id": "new"},
+        ],
+    )
+    monkeypatch.setattr(app.state.notebook_kernels, "require", lambda _kernel_id: session)
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/notebooks/kernels/kernel/events",
+        params={"cell_id": "cell-a", "parent_id": "new"},
+        headers={"Authorization": "Bearer secret"},
+    )
+
+    assert response.status_code == 200
+    assert [event["parent_id"] for event in response.json()["events"]] == ["new", "new"]

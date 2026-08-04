@@ -80,6 +80,10 @@ jobs:
           test -f desktop/research-assistant-extension/lib/browser/remote-file-system-provider.js
           test -f desktop/research-assistant-extension/lib/browser/tabs/monitor-tab.js
           test -f desktop/research-assistant-extension/lib/browser/tabs/research-tab.js
+          test -f desktop/research-assistant-extension/lib/browser/tabs/project-tab.js
+          test -f desktop/research-assistant-extension/lib/browser/tabs/jobs-tab.js
+          test -f desktop/research-assistant-extension/lib/browser/tabs/pipeline-tab.js
+          test -f desktop/research-assistant-extension/lib/browser/tabs/workbench-tab.js
           test -f desktop/research-assistant-extension/lib/node/research-assistant-backend-service.js
           test -f desktop/research-assistant-extension/lib/browser/style/research-assistant.css
           grep -q "overflow-y: scroll" desktop/research-assistant-extension/lib/browser/style/research-assistant.css
@@ -126,6 +130,8 @@ jobs:
               "research_assistant/desktop_server.py",
               "research_assistant/desktop_files.py",
               "research_assistant/remote_connect.py",
+              "research_assistant/updater.py",
+              "research_assistant/cli_update.py",
               "research_assistant/cli.py",
               "research_assistant/cli_desktop.py",
               "research_assistant/cli_workbench.py",
@@ -149,6 +155,9 @@ jobs:
           /tmp/ra-wheel-smoke/bin/ra --help
           /tmp/ra-wheel-smoke/bin/ra ui --help
           /tmp/ra-wheel-smoke/bin/ra connect --help
+          /tmp/ra-wheel-smoke/bin/ra update --help
+          /tmp/ra-wheel-smoke/bin/ra update server --help
+          /tmp/ra-wheel-smoke/bin/ra update local --help
           test "$(/tmp/ra-wheel-smoke/bin/ra version)" = "$expected_version"
           test "$(/tmp/ra-wheel-smoke/bin/python -c 'import research_assistant; print(research_assistant.__version__)')" = "$expected_version"
 
