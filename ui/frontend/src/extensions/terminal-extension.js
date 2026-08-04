@@ -85,7 +85,7 @@ function installTerminalStyles() {
 
 async function loadTerminalRuntime() {
   if (terminalState.runtime) return terminalState.runtime;
-  terminalState.runtime = await import("/api/extensions/terminal-runtime.js");
+  terminalState.runtime = await import("../terminal-runtime.js");
   if (!document.querySelector("#ra-xterm-styles")) {
     document.head.append(terminalElement("style", {
       id: "ra-xterm-styles",

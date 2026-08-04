@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
 from typing import Annotated, Literal
@@ -484,8 +483,3 @@ def publication_build_full(
         _abort(exc)
     typer.echo(str(result))
 
-
-if importlib.util.find_spec("fastapi") is not None:
-    from research_assistant.research_ui import install as install_research_ui
-
-    install_research_ui()

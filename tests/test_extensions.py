@@ -22,8 +22,7 @@ def test_extended_ui_matrix_stage_overrides_and_job_routes(tmp_path: Path) -> No
 
     index = client.get("/")
     assert index.status_code == 200
-    assert '/api/extensions/jobs.js' in index.text
-    assert client.get("/api/extensions/jobs.js").status_code == 200
+    assert "/api/extensions/" not in index.text
     assert client.get("/api/jobs").json() == {"jobs": []}
 
     generated = client.post(

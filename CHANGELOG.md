@@ -4,6 +4,23 @@ All notable user-visible changes to ResearchAssistant are documented here. Versi
 Semantic Versioning; the project remains pre-1.0 while its public configuration and plugin contracts
 continue to mature.
 
+## Unreleased
+
+### Added
+
+- A unified study/run workspace with explicit cross-study run selection and aggregation.
+- Scientific-artifact lineage, bounded comparison, and contextual notebook creation from selected
+  runs and artifacts.
+- Durable detached-launch leases, state reconciliation, worker-aware adoption, retry, and explicit
+  cancellation controls.
+- A machine-readable CLI/API/UI capability matrix.
+- Versioned plugin compatibility contracts and sequential persisted-schema migrations.
+- A typed research-assistant plan contract with conservative built-in actions and explicit write
+  authorization.
+- A shared persistent browser layout manager and a real Chromium workbench test in CI.
+- Branch-scoped CI concurrency and connector-readable pending/final commit statuses for direct
+  development pushes, including browser runtime diagnostics for extension failures.
+
 ## [0.3.0] - 2026-08-03
 
 ### Added

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -32,7 +31,6 @@ from research_assistant.statistics_suite import (
     write_statistical_report,
 )
 
-_INSTALLED = False
 
 
 class ResearchModel(BaseModel):
@@ -83,46 +81,13 @@ class HypothesisUpdateRequest(ResearchModel):
     statement: str | None = None
 
 
-def _register(app, server_module) -> None:
+def register_research_routes(app) -> None:
     try:
-        from fastapi import Query, Request
-        from fastapi.responses import HTMLResponse, Response
+        from fastapi import Query
     except ImportError as exc:  # pragma: no cover
         raise ResearchAssistantError("UI dependencies are not installed") from exc
 
     workspace = app.state.workspace
-    script_path = Path(__file__).with_name("ui") / "static" / "research-extension.js"
-    index_path = Path(server_module.__file__).with_name("static") / "index.html"
-
-    @app.middleware("http")
-    async def research_root(request: Request, call_next):
-        if request.method == "GET" and request.url.path == "/":
-            html = index_path.read_text(encoding="utf-8")
-            scripts = (
-                '<script type="module" src="/api/extensions/jobs.js"></script>\n'
-                '<script type="module" src="/api/extensions/pipeline.js"></script>\n'
-                '<script type="module" src="/api/extensions/research.js"></script>'
-            )
-            html = html.replace("</head>", f"  {scripts}\n  </head>")
-            response = HTMLResponse(html)
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-                "worker-src 'self' blob:; img-src 'self' data: blob:; connect-src 'self'; "
-                "font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
-            )
-            response.headers["Referrer-Policy"] = "no-referrer"
-            response.headers["X-Content-Type-Options"] = "nosniff"
-            response.headers["X-Frame-Options"] = "DENY"
-            return response
-        return await call_next(request)
-
-    @app.get("/api/extensions/research.js")
-    def research_javascript():
-        return Response(
-            script_path.read_text(encoding="utf-8"),
-            media_type="application/javascript",
-        )
-
     @app.post("/api/research/hpo/status")
     def hpo_status(payload: HpoRequest) -> dict[str, Any]:
         controller = HpoController(workspace.root, payload.spec)
@@ -308,19 +273,3 @@ def _register(app, server_module) -> None:
         )
         return {"path": path.relative_to(workspace.root).as_posix()}
 
-
-def install() -> None:
-    global _INSTALLED
-    if _INSTALLED:
-        return
-    from research_assistant.ui import server
-
-    original_create_app = server.create_app
-
-    def create_app(root, plugins=None, *, ssh_mode=None):
-        app = original_create_app(root, plugins, ssh_mode=ssh_mode)
-        _register(app, server)
-        return app
-
-    server.create_app = create_app
-    _INSTALLED = True

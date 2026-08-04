@@ -149,11 +149,12 @@ def test_system_monitor_ui_routes_and_extension(tmp_path: Path) -> None:
     with TestClient(app) as client:
         index = client.get("/")
         assert index.status_code == 200
-        assert "/api/extensions/system-monitor.js" in index.text
-
-        extension = client.get("/api/extensions/system-monitor.js")
-        assert extension.status_code == 200
-        assert "installSystemMonitor" in extension.text
+        assert "/api/extensions/" not in index.text
+        source = (
+            Path(__file__).parents[1]
+            / "ui/frontend/src/extensions/system-monitor-extension.js"
+        ).read_text(encoding="utf-8")
+        assert "installSystemMonitor" in source
 
         snapshot = client.get(
             "/api/system-monitor/snapshot",

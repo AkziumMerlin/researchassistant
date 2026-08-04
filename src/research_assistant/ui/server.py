@@ -46,7 +46,8 @@ from research_assistant.reporting import (
     write_table_bundle,
 )
 from research_assistant.scaffold import initialize_project
-from research_assistant.ui.launches import LaunchCreateRequest, LaunchManager
+from research_assistant.durable_launches import DurableLaunchManager
+from research_assistant.ui.launches import LaunchCreateRequest
 from research_assistant.ui.workspace import Workspace, WorkspaceConflict, WorkspaceError
 
 MAX_RUN_ROWS = 2000
@@ -318,7 +319,7 @@ def create_app(
     app.state.registry = registry
     app.state.plugins = server_plugins
     app.state.metric_indices = {}
-    app.state.launch_manager = LaunchManager(workspace, server_plugins)
+    app.state.launch_manager = DurableLaunchManager(workspace, server_plugins)
     app.add_middleware(
         TrustedHostMiddleware,
         allowed_hosts=["127.0.0.1", "localhost", "[::1]", "testserver"],
@@ -684,6 +685,30 @@ def create_app(
         destination = report_destination(payload.spec.name, payload.output_path)
         write_table_bundle(index, payload.spec, destination)
         return {"path": destination.relative_to(workspace.root).as_posix()}
+
+    # Register feature APIs explicitly. Frontend modules are compiled into the Vite bundle;
+    # these functions expose only typed server routes and never rewrite HTML or JavaScript.
+    from research_assistant.explorer_ui import register_architecture_routes
+    from research_assistant.notebook_ui import register_notebook_routes
+    from research_assistant.pipeline_ui import register_pipeline_routes
+    from research_assistant.research_ui import register_research_routes
+    from research_assistant.research_workspace_ui import register_research_workspace
+    from research_assistant.system_monitor_ui import register_system_monitor_routes
+    from research_assistant.terminal_ui import register_terminal_routes
+    from research_assistant.ui.extensions import register_job_routes
+    from research_assistant.workbench_ui import register_workbench_routes
+    from research_assistant.workspace_browser_ui import register_workspace_browser_routes
+
+    register_job_routes(app)
+    register_pipeline_routes(app)
+    register_research_routes(app)
+    register_workbench_routes(app)
+    register_terminal_routes(app)
+    register_system_monitor_routes(app)
+    register_workspace_browser_routes(app)
+    register_notebook_routes(app)
+    register_architecture_routes(app)
+    register_research_workspace(app)
 
     @app.get("/")
     def index():

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-STATIC_ROOT = Path(__file__).resolve().parents[1] / "src" / "research_assistant" / "ui" / "static"
+STATIC_ROOT = Path(__file__).resolve().parents[1] / "ui" / "frontend" / "src" / "extensions"
 
 
 def _asset(name: str) -> str:

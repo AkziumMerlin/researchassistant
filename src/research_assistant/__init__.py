@@ -12,6 +12,7 @@ try:
 except PackageNotFoundError:  # pragma: no cover - only possible outside an installed checkout
     __version__ = "0.0.0+unknown"
 
+
 __all__ = [
     "Plan",
     "Registry",

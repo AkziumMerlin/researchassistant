@@ -400,11 +400,7 @@ def test_cli_and_ui_surface_new_workflows() -> None:
 
     script = (
         Path(__file__).parents[1]
-        / "src"
-        / "research_assistant"
-        / "ui"
-        / "static"
-        / "research-extension.js"
+        / "ui/frontend/src/extensions/research-extension.js"
     )
     source = script.read_text(encoding="utf-8")
     for label in (

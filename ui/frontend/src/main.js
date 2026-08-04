@@ -23,6 +23,9 @@ import "monaco-editor/esm/vs/editor/contrib/multicursor/browser/multicursor.js";
 import "monaco-editor/esm/vs/editor/contrib/wordOperations/browser/wordOperations.js";
 import "monaco-editor/esm/vs/base/browser/ui/codicons/codicon/codicon.css";
 import "./styles.css";
+import { installExtensions } from "./extensions/index.js";
+
+globalThis.monaco = monaco;
 
 self.MonacoEnvironment = {
   getWorker() {
@@ -56,9 +59,11 @@ const state = {
   graphCounter: 0,
 };
 
-const elements = Object.fromEntries(
-  [
+const elements = new Proxy(
+  Object.fromEntries(
+    [
     "workspace-name",
+    "connection-status",
     "file-count",
     "file-filter",
     "file-tree",
@@ -265,7 +270,17 @@ const elements = Object.fromEntries(
     "initialize-project",
     "project-result",
     "project-error",
-  ].map((id) => [id, document.getElementById(id)]),
+    ].map((id) => [id, document.getElementById(id)]),
+  ),
+  {
+    get(target, property, receiver) {
+      if (typeof property === "string" && !Reflect.has(target, property)) {
+        const element = document.getElementById(property);
+        if (element) target[property] = element;
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  },
 );
 
 async function api(path, options = {}) {
@@ -3225,4 +3240,21 @@ async function start() {
   }
 }
 
-start();
+async function bootstrapApplication() {
+  await start();
+  globalThis.__RA_WORKBENCH__ = Object.freeze({
+    api,
+    monaco,
+    openFile,
+    getState: () => ({
+      bootstrap: state.bootstrap,
+      activePath: state.activePath,
+    }),
+  });
+  globalThis.dispatchEvent(new CustomEvent("ra-workbench-ready"));
+  await installExtensions();
+}
+
+bootstrapApplication().catch((error) => {
+  displayError(error, "Cannot initialize UI");
+});

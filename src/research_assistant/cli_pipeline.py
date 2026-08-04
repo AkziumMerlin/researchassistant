@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 from pathlib import Path
 from typing import Annotated, Literal
@@ -318,8 +317,3 @@ def publication_build(
         _abort(exc)
     typer.echo(str(path))
 
-
-if importlib.util.find_spec("fastapi") is not None:
-    from research_assistant.pipeline_ui import install as install_pipeline_ui
-
-    install_pipeline_ui()
