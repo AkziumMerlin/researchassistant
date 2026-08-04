@@ -11,6 +11,7 @@ const extensionLoaders = [
   () => import("./notebook-extension.js"),
   () => import("./layout-manager.js"),
   () => import("./research-workspace.js"),
+  () => import("./layout-constraints.js"),
 ];
 
 export async function installExtensions() {
