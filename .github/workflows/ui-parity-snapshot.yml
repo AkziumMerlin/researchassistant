@@ -28,3 +28,4 @@ jobs:
           name: ui-parity-snapshot
           path: /tmp/ui-parity
           retention-days: 1
+          if-no-files-found: error
