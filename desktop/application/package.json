@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.4.0",
   "license": "MIT",
+  "main": "lib/backend/electron-main.js",
   "theia": {
     "target": "electron",
     "frontend": {
@@ -58,7 +59,8 @@
     "@theia/workspace": "1.73.1"
   },
   "devDependencies": {
-    "@theia/cli": "1.73.1"
+    "@theia/cli": "1.73.1",
+    "electron": "39.8.7"
   },
   "engines": {
     "node": ">=24"
