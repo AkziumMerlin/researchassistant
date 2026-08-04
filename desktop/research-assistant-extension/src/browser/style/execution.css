@@ -1,4 +1,5 @@
-.ra-execution-grid {
+.ra-execution-grid,
+.ra-research-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
     align-items: start;
@@ -7,7 +8,8 @@
     min-height: 0;
 }
 
-.ra-execution-grid > .ra-card {
+.ra-execution-grid > .ra-card,
+.ra-research-grid > .ra-card {
     max-height: calc(100vh - 190px);
     overflow: auto;
     scrollbar-gutter: stable;
@@ -17,4 +19,29 @@
     box-sizing: border-box;
     width: 100%;
     min-height: 32px;
+}
+
+.ra-monitor-summary,
+.ra-monitor-gpus {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.ra-monitor-summary .ra-card,
+.ra-monitor-gpus .ra-card {
+    grid-template-rows: auto auto auto;
+}
+
+.ra-monitor-usage {
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    white-space: nowrap;
+}
+
+.ra-monitor-processes {
+    max-height: calc(100vh - 360px);
+    overflow-y: auto;
+    scrollbar-gutter: stable;
 }
