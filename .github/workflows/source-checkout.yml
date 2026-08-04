@@ -11,34 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
         with:
-          node-version: "24"
-      - name: Install native prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential libx11-dev libxkbfile-dev
-      - name: Install Theia dependencies
-        run: npm install --prefix desktop
-      - name: Archive source
-        run: tar --exclude=.git -czf /tmp/researchassistant-source.tar.gz .
-      - name: Archive relevant Theia contracts
-        run: |
-          tar -czf /tmp/theia-contracts.tar.gz \
-            desktop/node_modules/@theia/core \
-            desktop/node_modules/@theia/filesystem \
-            desktop/node_modules/@theia/workspace \
-            desktop/node_modules/@theia/terminal \
-            desktop/node_modules/@theia/process \
-            desktop/node_modules/@theia/electron \
-            desktop/node_modules/@theia/cli
+          ref: feature/theia-remote-ssh
+      - name: Capture branch tree
+        run: git rev-parse 'HEAD^{tree}' > /tmp/tree-sha.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: researchassistant-source
-          path: /tmp/researchassistant-source.tar.gz
-          retention-days: 1
-      - uses: actions/upload-artifact@v4
-        with:
-          name: theia-contracts
-          path: /tmp/theia-contracts.tar.gz
+          name: branch-tree
+          path: /tmp/tree-sha.txt
           retention-days: 1
