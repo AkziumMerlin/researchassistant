@@ -15,17 +15,11 @@ jobs:
         with:
           ref: feature/theia-ui-parity-update
           fetch-depth: 0
-      - name: Archive old and current UI trees
-        run: |
-          git fetch origin feature/research-workspace-v2:refs/remotes/origin/feature/research-workspace-v2
-          mkdir -p /tmp/ui-parity
-          git archive --format=tar.gz --output=/tmp/ui-parity/old-ui.tar.gz origin/feature/research-workspace-v2 \
-            ui src tests pyproject.toml README.md docs .github/workflows/ci.yml
-          git archive --format=tar.gz --output=/tmp/ui-parity/theia-ui.tar.gz HEAD \
-            desktop src tests pyproject.toml README.md docs .github/workflows/ci.yml
+      - name: Capture branch tree
+        run: git rev-parse 'HEAD^{tree}' > /tmp/tree-sha.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: ui-parity-snapshot
-          path: /tmp/ui-parity
+          name: ui-parity-branch-tree
+          path: /tmp/tree-sha.txt
           retention-days: 1
           if-no-files-found: error
