@@ -1,0 +1,68 @@
+{
+  "name": "@research-assistant/desktop-application",
+  "private": true,
+  "version": "0.4.0",
+  "license": "MIT",
+  "main": "lib/backend/electron-main.js",
+  "theia": {
+    "target": "electron",
+    "frontend": {
+      "config": {
+        "applicationName": "ResearchAssistant",
+        "defaultTheme": {
+          "light": "Default Dark Modern",
+          "dark": "Default Dark Modern"
+        },
+        "defaultIconTheme": "theia-file-icons",
+        "preferences": {
+          "workbench.colorTheme": "Default Dark Modern",
+          "workbench.iconTheme": "theia-file-icons",
+          "workbench.activityBar.visible": true,
+          "workbench.statusBar.visible": true,
+          "window.menuBarVisibility": "classic",
+          "terminal.integrated.defaultProfile.linux": "bash"
+        }
+      }
+    },
+    "electron": {
+      "appUserModelId": "io.researchassistant.desktop",
+      "showWindowEarly": false
+    }
+  },
+  "scripts": {
+    "build": "theia build --mode production",
+    "start": "theia start",
+    "package": "theia build --mode production && theia electron package",
+    "clean": "theia clean"
+  },
+  "dependencies": {
+    "@research-assistant/theia-extension": "0.4.0",
+    "@theia/core": "1.73.1",
+    "@theia/electron": "1.73.1",
+    "@theia/editor": "1.73.1",
+    "@theia/filesystem": "1.73.1",
+    "@theia/file-search": "1.73.1",
+    "@theia/markers": "1.73.1",
+    "@theia/messages": "1.73.1",
+    "@theia/monaco": "1.73.1",
+    "@theia/navigator": "1.73.1",
+    "@theia/outline-view": "1.73.1",
+    "@theia/output": "1.73.1",
+    "@theia/plugin-ext": "1.73.1",
+    "@theia/plugin-ext-vscode": "1.73.1",
+    "@theia/preferences": "1.73.1",
+    "@theia/process": "1.73.1",
+    "@theia/search-in-workspace": "1.73.1",
+    "@theia/task": "1.73.1",
+    "@theia/terminal": "1.73.1",
+    "@theia/toolbar": "1.73.1",
+    "@theia/workspace": "1.73.1"
+  },
+  "devDependencies": {
+    "@theia/cli": "1.73.1",
+    "electron": "39.8.7"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

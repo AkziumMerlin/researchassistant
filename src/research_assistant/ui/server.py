@@ -31,6 +31,7 @@ from research_assistant.checkpoints import (
 )
 from research_assistant.config import dump_config, load_config_text
 from research_assistant.config_creator import assemble_config
+from research_assistant.durable_launches import DurableLaunchManager
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.integrations.torch_graph import TorchGraphParams, validate_graph
 from research_assistant.planning import Plan, compile_plan
@@ -46,7 +47,6 @@ from research_assistant.reporting import (
     write_table_bundle,
 )
 from research_assistant.scaffold import initialize_project
-from research_assistant.durable_launches import DurableLaunchManager
 from research_assistant.ui.launches import LaunchCreateRequest
 from research_assistant.ui.workspace import Workspace, WorkspaceConflict, WorkspaceError
 

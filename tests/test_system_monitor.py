@@ -6,8 +6,8 @@ from typing import Any
 
 from fastapi.testclient import TestClient
 
+from research_assistant.desktop_server import create_desktop_app
 from research_assistant.system_monitor import NvidiaSystemProbe, SystemMonitor
-from research_assistant.ui.server import create_app
 
 
 class NoGpuProbe:
@@ -139,25 +139,27 @@ def test_nvidia_probe_parses_devices_and_processes(monkeypatch) -> None:
     assert snapshot["processes"][1234][0]["memory_mb"] == 768.0
 
 
-def test_system_monitor_ui_routes_and_extension(tmp_path: Path) -> None:
-    app = create_app(tmp_path)
+def test_system_monitor_routes_and_theia_view(tmp_path: Path) -> None:
+    app = create_desktop_app(tmp_path, token="secret")
     assert hasattr(app.state, "system_monitor")
     paths = {getattr(route, "path", None) for route in app.routes}
     assert "/api/system-monitor/snapshot" in paths
     assert "/api/system-monitor/processes/{pid}" in paths
 
-    with TestClient(app) as client:
-        index = client.get("/")
-        assert index.status_code == 200
-        assert "/api/extensions/" not in index.text
-        source = (
-            Path(__file__).parents[1]
-            / "ui/frontend/src/extensions/system-monitor-extension.js"
-        ).read_text(encoding="utf-8")
-        assert "installSystemMonitor" in source
+    source = (
+        Path(__file__).parents[1]
+        / "desktop/research-assistant-extension/src/browser/tabs/monitor-tab.ts"
+    ).read_text(encoding="utf-8")
+    assert "renderMonitor" in source
+    assert "/api/system-monitor/snapshot" in source
+    assert "/api/system-monitor/processes/" in source
+    assert "Send SIG" in source
 
+    headers = {"Authorization": "Bearer secret"}
+    with TestClient(app) as client:
         snapshot = client.get(
             "/api/system-monitor/snapshot",
+            headers=headers,
             params={"scope": "user", "sort": "pid", "search": str(os.getpid())},
         )
         assert snapshot.status_code == 200
@@ -165,6 +167,7 @@ def test_system_monitor_ui_routes_and_extension(tmp_path: Path) -> None:
 
         protected = client.post(
             f"/api/system-monitor/processes/{os.getpid()}/signal",
+            headers=headers,
             json={"signal": "TERM"},
         )
         assert protected.status_code == 400

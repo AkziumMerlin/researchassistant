@@ -5,7 +5,6 @@ from typing import Any
 from research_assistant.errors import ResearchAssistantError
 
 
-
 def register_workspace_browser_routes(app) -> None:
     try:
         from fastapi import Query

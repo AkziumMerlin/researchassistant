@@ -8,7 +8,6 @@ from research_assistant.errors import ResearchAssistantError
 from research_assistant.system_monitor import SystemMonitor
 
 
-
 class MonitorRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

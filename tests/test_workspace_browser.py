@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 import research_assistant.cli_workbench  # noqa: F401
-from research_assistant.ui import server
+from research_assistant.desktop_server import create_desktop_app
 from research_assistant.ui.workspace import Workspace
 
 
@@ -46,60 +47,52 @@ def test_workspace_search_traverses_unloaded_directories(tmp_path: Path) -> None
     assert result["entries"][0]["notebook"] is True
 
 
-def test_workspace_browser_routes_and_extensions(tmp_path: Path) -> None:
+def test_workspace_routes_and_theia_shell(tmp_path: Path) -> None:
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "model.py").write_text("class Model: pass\n", encoding="utf-8")
-    app = server.create_app(tmp_path)
+    app = create_desktop_app(tmp_path, token="secret")
+    headers = {"Authorization": "Bearer secret"}
+
+    application = json.loads(
+        (
+            Path(__file__).parents[1]
+            / "desktop/application/package.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert application["dependencies"]["@theia/navigator"] == "1.73.1"
+    assert application["dependencies"]["@theia/monaco"] == "1.73.1"
+    assert application["dependencies"]["@theia/terminal"] == "1.73.1"
 
     with TestClient(app) as client:
-        index = client.get("/")
-        assert index.status_code == 200
-        assert "/api/extensions/" not in index.text
-        main_source = (
-            Path(__file__).parents[1] / "ui/frontend/src/main.js"
-        ).read_text(encoding="utf-8")
-        assert "globalThis.__RA_WORKBENCH__" in main_source
-        assert "globalThis.monaco = monaco" in main_source
+        assert client.get("/", headers=headers).status_code == 404
 
-        explorer_source = (
-            Path(__file__).parents[1]
-            / "ui/frontend/src/extensions/explorer-plus.js"
-        ).read_text(encoding="utf-8")
-        assert (
-            ".raExplorerRow.directory{grid-template-columns:18px 18px minmax(0,1fr)"
-            in explorer_source
+        root = client.get(
+            "/api/workspace/entries",
+            headers=headers,
+            params={"path": "", "limit": 10},
         )
-        assert ".raExplorerName{min-width:0;" in explorer_source
-
-        component_search_source = (
-            Path(__file__).parents[1]
-            / "ui/frontend/src/extensions/component-search.js"
-        ).read_text(encoding="utf-8")
-        assert 'palette.classList.add("raComponentSearchPalette")' in component_search_source
-        assert ".ra-models-main{min-height:0}" in component_search_source
-        assert ".ra-models-work{min-height:0;overflow:hidden}" in component_search_source
-        assert "overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable" in (
-            component_search_source
-        )
-        assert "::-webkit-scrollbar-thumb" in component_search_source
-
-        root = client.get("/api/workspace/entries", params={"path": "", "limit": 10})
         assert root.status_code == 200
         assert root.json()["entries"][0]["path"] == "src"
 
         nested = client.get(
             "/api/workspace/entries",
+            headers=headers,
             params={"path": "src", "limit": 10},
         )
         assert nested.status_code == 200
         assert nested.json()["entries"][0]["path"] == "src/model.py"
 
-        search = client.get("/api/workspace/search", params={"query": "model"})
+        search = client.get(
+            "/api/workspace/search",
+            headers=headers,
+            params={"query": "model"},
+        )
         assert search.status_code == 200
         assert search.json()["entries"][0]["path"] == "src/model.py"
 
         created = client.post(
             "/api/notebooks/file",
+            headers=headers,
             json={"path": "notebooks/reports/analysis.ipynb", "kernel_name": "python3"},
         )
         assert created.status_code == 201

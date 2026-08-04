@@ -1,0 +1,560 @@
+.ra-theia-workspace {
+    display: grid;
+    grid-template-rows: auto auto minmax(0, 1fr);
+    min-width: 360px;
+    height: 100%;
+    color: var(--theia-foreground);
+    background: var(--theia-sideBar-background);
+}
+
+.ra-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--theia-sideBar-border);
+}
+
+.ra-header h2,
+.ra-card h3 {
+    margin: 0;
+}
+
+.ra-eyebrow {
+    display: block;
+    margin-bottom: 3px;
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    letter-spacing: .08em;
+}
+
+.ra-sidecar-status {
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.ra-sidecar-status.error,
+.ra-output.error {
+    color: var(--theia-errorForeground);
+}
+
+.ra-tabs,
+.ra-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.ra-tabs {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--theia-sideBar-border);
+}
+
+.ra-tab.active,
+.ra-button.primary {
+    background: var(--theia-button-background);
+    color: var(--theia-button-foreground);
+}
+
+.ra-button.danger {
+    border-color: var(--theia-errorForeground);
+    color: var(--theia-errorForeground);
+}
+
+.ra-content {
+    min-height: 0;
+    overflow: auto;
+    padding: 10px;
+}
+
+.ra-content:has(> .ra-model-editor) {
+    overflow: hidden;
+}
+
+.ra-loading {
+    padding: 20px;
+    color: var(--theia-descriptionForeground);
+}
+
+.ra-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+    align-items: center;
+    margin-bottom: 9px;
+}
+
+.ra-toolbar .theia-input {
+    min-width: 180px;
+    flex: 1 1 180px;
+}
+
+.ra-summary {
+    margin-left: auto;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.ra-split {
+    display: grid;
+    grid-template-columns: minmax(360px, 1.15fr) minmax(320px, .85fr);
+    gap: 10px;
+    min-height: 0;
+}
+
+.ra-split.models {
+    grid-template-columns: minmax(300px, .9fr) minmax(360px, 1.1fr);
+}
+
+.ra-report-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.ra-card {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    align-content: start;
+    gap: 8px;
+    min-width: 0;
+    min-height: 0;
+    padding: 10px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 5px;
+    background: var(--theia-editor-background);
+}
+
+.ra-card > .theia-input,
+.ra-card > textarea,
+.ra-card > .ra-button,
+.ra-card > .ra-actions,
+.ra-card > .ra-check {
+    grid-row: auto;
+}
+
+.ra-check {
+    display: flex;
+    gap: 7px;
+    align-items: center;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.ra-virtual-list,
+.ra-component-list {
+    min-height: 140px;
+    max-height: calc(100vh - 260px);
+    overflow: auto;
+    scrollbar-gutter: stable;
+}
+
+.ra-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 8px;
+    align-items: center;
+    padding: 7px 5px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.ra-identity {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+}
+
+.ra-identity strong,
+.ra-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ra-identity small,
+.ra-path {
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+}
+
+.ra-state {
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: var(--theia-badge-background);
+    color: var(--theia-badge-foreground);
+    font-size: 10px;
+}
+
+.ra-state.completed,
+.ra-state.compatible {
+    background: var(--theia-testing-iconPassed);
+    color: var(--theia-editor-background);
+}
+
+.ra-state.failed,
+.ra-state.incompatible {
+    background: var(--theia-testing-iconFailed);
+}
+
+.ra-output {
+    min-height: 120px;
+    max-height: calc(100vh - 330px);
+    margin: 0;
+    padding: 8px;
+    overflow: auto;
+    white-space: pre-wrap;
+    border: 1px solid var(--theia-input-border);
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font: 11px/1.4 var(--theia-code-font-family);
+}
+
+.ra-component-list {
+    display: grid;
+    align-content: start;
+    gap: 4px;
+}
+
+.ra-component {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 8px;
+    width: 100%;
+    padding: 7px;
+    text-align: left;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+.ra-component:hover,
+.ra-component:focus-visible {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
+}
+
+.ra-component span {
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+}
+
+.ra-component small {
+    grid-column: 1 / -1;
+    color: var(--theia-descriptionForeground);
+}
+
+.ra-card textarea,
+.ra-spec-editor {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 110px;
+    resize: vertical;
+    padding: 7px;
+    border: 1px solid var(--theia-input-border);
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font-family: var(--theia-code-font-family);
+}
+
+.ra-spec-editor {
+    min-height: 280px;
+}
+
+.ra-model-editor {
+    display: grid;
+    grid-template-areas:
+        "toolbar toolbar toolbar"
+        "sidebar center inspector"
+        "footer footer footer";
+    grid-template-columns: minmax(210px, .62fr) minmax(480px, 1.75fr) minmax(260px, .78fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    box-sizing: border-box;
+    min-width: 0;
+    min-height: 0;
+    height: 100%;
+}
+
+.ra-model-toolbar,
+.ra-model-canvas-toolbar,
+.ra-model-template-toolbar {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    min-width: 0;
+}
+
+.ra-model-toolbar {
+    grid-area: toolbar;
+}
+
+.ra-model-toolbar > .theia-input {
+    min-width: 220px;
+    flex: 1;
+}
+
+.ra-model-sidebar,
+.ra-model-center,
+.ra-model-inspector-pane {
+    min-width: 0;
+    min-height: 0;
+    border: 1px solid var(--theia-panel-border);
+    background: var(--theia-editor-background);
+}
+
+.ra-model-sidebar {
+    grid-area: sidebar;
+    display: grid;
+    grid-template-rows: auto minmax(70px, .25fr) auto auto minmax(0, 1fr);
+    gap: 6px;
+    padding: 8px;
+    overflow: hidden;
+}
+
+.ra-model-sidebar h3,
+.ra-model-inspector-pane h3 {
+    margin: 0;
+    font-size: 12px;
+}
+
+.ra-model-files,
+.ra-model-palette-list,
+.ra-model-inspector {
+    min-height: 0;
+    scrollbar-gutter: stable;
+}
+
+.ra-model-files {
+    display: grid;
+    align-content: start;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.ra-model-file {
+    overflow: hidden;
+    padding: 5px 4px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+.ra-model-file:hover,
+.ra-model-file:focus-visible {
+    background: var(--theia-list-hoverBackground);
+}
+
+.ra-model-palette-toolbar .theia-input {
+    width: 100%;
+}
+
+.ra-model-palette-list {
+    display: grid;
+    align-content: start;
+    gap: 3px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+
+.ra-model-palette-group {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    padding: 5px 4px 3px;
+    background: var(--theia-editor-background);
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+
+.ra-model-palette-item {
+    display: grid;
+    gap: 2px;
+    padding: 6px;
+    text-align: left;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+}
+
+.ra-model-palette-item:hover,
+.ra-model-palette-item:focus-visible {
+    border-color: var(--theia-focusBorder);
+    background: var(--theia-list-hoverBackground);
+}
+
+.ra-model-palette-item small,
+.ra-model-node small,
+.ra-model-node span,
+.ra-help,
+.ra-empty {
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+}
+
+.ra-model-center {
+    grid-area: center;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+}
+
+.ra-model-canvas-toolbar {
+    flex-wrap: wrap;
+    padding: 6px;
+    border-bottom: 1px solid var(--theia-panel-border);
+}
+
+.ra-model-template-toolbar {
+    flex: 1;
+}
+
+.ra-model-canvas {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    overflow: auto;
+    background-color: var(--theia-editor-background);
+    background-image: radial-gradient(var(--theia-editorIndentGuide-background) 1px, transparent 1px);
+    background-size: 18px 18px;
+}
+
+.ra-model-canvas-nodes,
+.ra-model-edges {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 1600px;
+    height: 1000px;
+}
+
+.ra-model-edges {
+    pointer-events: none;
+}
+
+.ra-model-edge {
+    fill: none;
+    stroke: var(--theia-editorLink-activeForeground);
+    stroke-width: 1.5;
+}
+
+.ra-model-node {
+    position: absolute;
+    display: grid;
+    gap: 3px;
+    box-sizing: border-box;
+    width: 180px;
+    min-height: 70px;
+    padding: 8px;
+    border: 1px solid var(--theia-panel-border);
+    border-radius: 5px;
+    background: var(--theia-sideBar-background);
+    box-shadow: 0 2px 7px rgb(0 0 0 / 22%);
+    cursor: grab;
+    user-select: none;
+}
+
+.ra-model-node.input {
+    border-color: var(--theia-charts-green);
+    cursor: default;
+}
+
+.ra-model-node.selected {
+    border-color: var(--theia-focusBorder);
+    box-shadow: 0 0 0 1px var(--theia-focusBorder);
+}
+
+.ra-model-inspector-pane {
+    grid-area: inspector;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 7px;
+    padding: 8px;
+    overflow: hidden;
+}
+
+.ra-model-inspector {
+    display: grid;
+    align-content: start;
+    gap: 8px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.ra-model-field {
+    display: grid;
+    gap: 4px;
+    color: var(--theia-descriptionForeground);
+    font-size: 11px;
+}
+
+.ra-model-json {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 120px;
+    resize: vertical;
+    padding: 6px;
+    border: 1px solid var(--theia-input-border);
+    background: var(--theia-input-background);
+    color: var(--theia-input-foreground);
+    font: 11px/1.35 var(--theia-code-font-family);
+}
+
+.ra-model-footer {
+    grid-area: footer;
+    min-width: 0;
+    padding: 3px 5px;
+    color: var(--theia-descriptionForeground);
+    font-size: 10px;
+}
+
+.ra-model-status.valid {
+    color: var(--theia-testing-iconPassed);
+}
+
+@media (max-width: 1100px) {
+    .ra-model-editor {
+        grid-template-columns: minmax(190px, .6fr) minmax(440px, 1.4fr);
+        grid-template-areas:
+            "toolbar toolbar"
+            "sidebar center"
+            "inspector inspector"
+            "footer footer";
+        grid-template-rows: auto minmax(360px, 1fr) minmax(220px, .55fr) auto;
+        overflow: auto;
+    }
+}
+
+@media (max-width: 900px) {
+    .ra-split,
+    .ra-split.models {
+        grid-template-columns: 1fr;
+    }
+
+    .ra-virtual-list,
+    .ra-component-list {
+        max-height: 420px;
+    }
+
+    .ra-model-editor {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "toolbar"
+            "sidebar"
+            "center"
+            "inspector"
+            "footer";
+        grid-template-rows: auto 420px 520px 320px auto;
+        overflow: auto;
+    }
+}

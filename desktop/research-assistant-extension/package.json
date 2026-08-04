@@ -1,0 +1,36 @@
+{
+  "name": "@research-assistant/theia-extension",
+  "version": "0.4.0",
+  "description": "ResearchAssistant workbench contributions for Eclipse Theia.",
+  "license": "MIT",
+  "main": "lib/common/index.js",
+  "files": [
+    "lib",
+    "src/browser/style"
+  ],
+  "theiaExtensions": [
+    {
+      "frontend": "lib/browser/research-assistant-frontend-module",
+      "backend": "lib/node/research-assistant-backend-module"
+    }
+  ],
+  "scripts": {
+    "build": "tsc -b && mkdir -p lib/browser/style && cp src/browser/style/*.css lib/browser/style/",
+    "clean": "rimraf lib tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@theia/core": "1.73.1",
+    "@theia/filesystem": "1.73.1",
+    "@theia/workspace": "1.73.1"
+  },
+  "devDependencies": {
+    "@theia/cli": "1.73.1",
+    "@types/node": "^24.0.0",
+    "@types/react": "^18.3.0",
+    "rimraf": "^6.0.1",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

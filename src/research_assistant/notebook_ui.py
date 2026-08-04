@@ -11,7 +11,6 @@ from research_assistant.errors import ResearchAssistantError
 from research_assistant.notebooks import NotebookError, NotebookKernelManager, NotebookStore
 
 
-
 class NotebookRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -41,6 +40,7 @@ class KernelExecuteRequest(NotebookRequest):
 def register_notebook_routes(app) -> None:
     try:
         from fastapi import Query, WebSocket, WebSocketDisconnect
+        from fastapi.responses import Response
     except ImportError as exc:  # pragma: no cover
         raise ResearchAssistantError("UI dependencies are not installed") from exc
 

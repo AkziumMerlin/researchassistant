@@ -91,15 +91,35 @@ def _write_run(
                 "data": {"type": "example/data", "params": {}},
             },
             "matrix": {},
-            "stages": [{"name": "fit", "type": "example/fit", "needs": [], "components": {}, "params": {}}],
+            "stages": [
+                {
+                    "name": "fit",
+                    "type": "example/fit",
+                    "needs": [],
+                    "components": {},
+                    "params": {},
+                }
+            ],
             "resources": {"accelerator": "cpu", "devices": 1},
             "artifacts": {"root": str(root)},
-            "logging": {"tensorboard": {"enabled": False, "directory": "tensorboard", "flush_seconds": 30}},
+            "logging": {
+                "tensorboard": {
+                    "enabled": False,
+                    "directory": "tensorboard",
+                    "flush_seconds": 30,
+                }
+            },
         },
     }
     (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     (run_dir / "status.json").write_text(
-        json.dumps({"run_id": run_id, "state": "completed", "updated_at": "2026-07-31T00:01:00+00:00"}),
+        json.dumps(
+            {
+                "run_id": run_id,
+                "state": "completed",
+                "updated_at": "2026-07-31T00:01:00+00:00",
+            }
+        ),
         encoding="utf-8",
     )
     events = []
@@ -392,17 +412,16 @@ def test_research_log_and_enhanced_publication(tmp_path: Path) -> None:
     assert (bundle / "checksums.sha256").is_file()
 
 
-def test_cli_and_ui_surface_new_workflows() -> None:
+def test_cli_and_theia_surface_new_workflows() -> None:
     from research_assistant.cli_research import app
 
     names = {group.name for group in app.registered_groups}
     assert {"hpo", "dataset", "selection", "statistics", "research"}.issubset(names)
 
-    script = (
+    source = (
         Path(__file__).parents[1]
-        / "ui/frontend/src/extensions/research-extension.js"
-    )
-    source = script.read_text(encoding="utf-8")
+        / "desktop/research-assistant-extension/src/browser/tabs/research-tab.ts"
+    ).read_text(encoding="utf-8")
     for label in (
         "Adaptive HPO",
         "Datasets",

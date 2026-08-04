@@ -9,3 +9,8 @@ dist/
 build/
 .ra/
 runs/
+# Eclipse Theia desktop build
+desktop/node_modules/
+desktop/**/lib/
+desktop/**/electron-app/
+desktop/**/gen-webpack.config.js
