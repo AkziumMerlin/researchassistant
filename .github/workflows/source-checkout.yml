@@ -18,7 +18,7 @@ jobs:
       - name: Detect pending transport
         id: transport
         run: |
-          if [ -f .ra-transport/remote-ssh-00a.b64 ]; then
+          if [ -f .ra-transport-v2/part-00 ]; then
             echo 'present=true' >> "$GITHUB_OUTPUT"
           else
             echo 'present=false' >> "$GITHUB_OUTPUT"
@@ -39,25 +39,32 @@ jobs:
       - name: Reconstruct verified source archive
         if: steps.transport.outputs.present == 'true'
         run: |
-          echo '846e069e2a928a1e62286d6de7698a296196a944664dd01cf1d8efd56c55557c  .ra-transport/remote-ssh-00a.b64' | sha256sum --check
-          echo '854a7cfe31b820871bcb08271673b6f67676c39c918cbddbc6d98e28afefd052  .ra-transport/remote-ssh-00b.b64' | sha256sum --check
-          echo 'd4bb76ddb78f32ec2c681c8fc229ccba75a93e8cdbe895f817807969006c317b  .ra-transport/remote-ssh-01.b64' | sha256sum --check
-          echo '6989389d6d4a660930f78996751153850a1c6d0e3691ca9f292ff6c05e8bf58b  .ra-transport/remote-ssh-02.b64' | sha256sum --check
-          echo 'f48aa90cdf724c0d89b3312be54fe13545076efb6dc071fe236f5a0a3656831d  .ra-transport/remote-ssh-03.b64' | sha256sum --check
-          echo 'f65f08e72c0a04581e240fc5c31aadd29b88fba90089c477539ac846042c8021  .ra-transport/remote-ssh-04.b64' | sha256sum --check
-          cat \
-            .ra-transport/remote-ssh-00a.b64 \
-            .ra-transport/remote-ssh-00b.b64 \
-            .ra-transport/remote-ssh-01.b64 \
-            .ra-transport/remote-ssh-02.b64 \
-            .ra-transport/remote-ssh-03.b64 \
-            .ra-transport/remote-ssh-04.b64 \
-            > /tmp/remote-ssh-change.b64
+          cat > /tmp/parts.sha256 <<'EOF'
+          2b8040fb4ad39544f8c4044180516075ee89af47a2e7abc0a994e2d9fffd3708  .ra-transport-v2/part-00
+          226e239f06456e26e8dfb9b763db9452801b4bb2e20f4c1d8f8871eb94f983da  .ra-transport-v2/part-01
+          5acd6383b87003338eab8466fed2f009818e953fff4e3150f7341286a30396d9  .ra-transport-v2/part-02
+          dae99a5c78a4f2c491ec9a9b07c85e6939f5cb4f07620d8d287e763d9466af0b  .ra-transport-v2/part-03
+          5444abdcf7c0f436d88c2c2e03519807ec8227858ef3c34cbc87ab818e8f8b26  .ra-transport-v2/part-04
+          726dbe797da37e6bc6c4496d126d5ab17db3fb9cd9b31ecd0e2f953a629d44f1  .ra-transport-v2/part-05
+          cd2f3a8b48bba2dacf1014199c1dd814207c04f37f8742646dabef7188205db8  .ra-transport-v2/part-06
+          ed2190e4f7353c8eb1574e2be4e918f8d382766d58b578417c9fa30cf5b3e762  .ra-transport-v2/part-07
+          4c9a257a140c261596c70926ba5da61515e107d1a2807c2f06bd406637a9ce7b  .ra-transport-v2/part-08
+          f751e79bca12b49afed83bfa1c2b3cddd3dc27ad6bdefd34d3117d318c507f49  .ra-transport-v2/part-09
+          749a43c1647cdef0cc7f8f9a3dd75a4df61aaa84e3dc13978f8900de4cee92e1  .ra-transport-v2/part-10
+          4661cf3aeae920560351097a1e5e75a13c66d22feac126cac2f25b0d91a8a485  .ra-transport-v2/part-11
+          48417a0bec1551d207ef378ebe113135d5ed2247f8048fa2f0f6fb7c2f953959  .ra-transport-v2/part-12
+          0805e2434d21d3b1af8fb433bbbd26332217c9e046fe7fb6bf96ba308544596c  .ra-transport-v2/part-13
+          a3bd2df7c49631f27558d38e39741ac4775d2461634474b863ee379264a3fd46  .ra-transport-v2/part-14
+          54b9aef2ba1ab802e99f5e865ffad29db795c50be5874d6b5065d9adccd8f4bc  .ra-transport-v2/part-15
+          c695821a6186d330ab29f5400f4dbf828d0c3bf14972939e2e883067d6a5c72d  .ra-transport-v2/part-16
+          EOF
+          sha256sum --check /tmp/parts.sha256
+          cat .ra-transport-v2/part-* > /tmp/remote-ssh-change.b64
           echo 'c4303645dbba021baa59c436cc05fd2c22c2d8948a145495fa0c00f3aaa0e716  /tmp/remote-ssh-change.b64' | sha256sum --check
           base64 --decode /tmp/remote-ssh-change.b64 > /tmp/remote-ssh-change.tar.gz
           echo 'ae2fee09d026a3409dd60ccb4d0e423105c3ea529f1ab7e5e5565188ee0d568f  /tmp/remote-ssh-change.tar.gz' | sha256sum --check
           tar --extract --gzip --file /tmp/remote-ssh-change.tar.gz
-          rm -rf .ra-transport
+          rm -rf .ra-transport .ra-transport-v2
       - name: Validate Python implementation
         if: steps.transport.outputs.present == 'true'
         run: |
