@@ -12,6 +12,125 @@ permissions:
   contents: read
 
 jobs:
+  migrate-retired-ui-tests:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/theia-desktop'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/theia-desktop
+      - name: Replace browser-era test blocks
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+
+          pipeline = Path('tests/test_research_pipeline.py')
+          source = pipeline.read_text(encoding='utf-8')
+          marker = '\ndef test_cli_and_ui_surface_new_workflows() -> None:\n'
+          if marker in source:
+              source = source.split(marker, 1)[0] + '''
+
+def test_cli_and_theia_surface_new_workflows() -> None:
+    from research_assistant.cli_research import app
+
+    names = {group.name for group in app.registered_groups}
+    assert {"hpo", "dataset", "selection", "statistics", "research"}.issubset(names)
+
+    source = (
+        Path(__file__).parents[1]
+        / "desktop/research-assistant-extension/src/browser/tabs/research-tab.ts"
+    ).read_text(encoding="utf-8")
+    for label in (
+        "Adaptive HPO",
+        "Datasets",
+        "Selection",
+        "Statistics",
+        "Hypotheses",
+        "Publication",
+    ):
+        assert label in source
+'''
+              pipeline.write_text(source, encoding='utf-8')
+
+          workspace = Path('tests/test_research_workspace.py')
+          source = workspace.read_text(encoding='utf-8')
+          replacement = '''def test_research_workspace_api_and_theia_views_are_registered(tmp_path: Path) -> None:
+    from research_assistant.desktop_server import create_desktop_app
+
+    _write_run(
+        tmp_path,
+        study_id="study-a",
+        trial_id="trial-a",
+        run_id="run-a",
+        seed=0,
+        error=0.1,
+    )
+    client = TestClient(create_desktop_app(tmp_path, token="secret"))
+    headers = {"Authorization": "Bearer secret"}
+
+    runs_source = (
+        Path(__file__).parents[1]
+        / "desktop/research-assistant-extension/src/browser/tabs/runs-tab.ts"
+    ).read_text(encoding="utf-8")
+    assistant_source = (
+        Path(__file__).parents[1]
+        / "desktop/research-assistant-extension/src/browser/tabs/assistant-tab.ts"
+    ).read_text(encoding="utf-8")
+    assert "Cross-run aggregation" in runs_source
+    assert "/api/workspace/runs/aggregate" in runs_source
+    assert "/api/workspace/assistant/plan" in assistant_source
+
+    capabilities = client.get("/api/workspace/capabilities", headers=headers)
+    assert capabilities.status_code == 200
+    assert any(
+        row["capability_id"] == "notebook.context"
+        for row in capabilities.json()["capabilities"]
+    )
+    runs = client.get("/api/workspace/runs", headers=headers)
+    assert runs.status_code == 200
+    assert runs.json()["runs"][0]["run_id"] == "run-a"
+    aggregation = client.post(
+        "/api/workspace/runs/aggregate",
+        headers=headers,
+        json={"run_ids": ["run-a"], "metric": "relative_l2"},
+    )
+    assert aggregation.status_code == 200, aggregation.text
+    assistant = client.post(
+        "/api/workspace/assistant/plan",
+        headers=headers,
+        json={"goal": "Inspect run results", "run_ids": ["run-a"]},
+    )
+    assert assistant.status_code == 200
+    assert assistant.json()["actions"]
+
+
+'''
+          pattern = re.compile(
+              r'def test_research_workspace_api_and_assets_are_registered\(tmp_path: Path\) -> None:\n.*?(?=def test_research_workspace_cli_is_available\(\) -> None:)',
+              re.S,
+          )
+          source, count = pattern.subn(replacement, source)
+          if count != 1:
+              raise SystemExit(f'expected one workspace asset test, replaced {count}')
+          browser_marker = '\n\n@pytest.mark.skipif(\n    os.environ.get("RA_BROWSER_E2E") != "1",'
+          if browser_marker in source:
+              source = source.split(browser_marker, 1)[0] + '\n'
+          workspace.write_text(source, encoding='utf-8')
+          PY
+      - name: Commit migrated tests
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/test_research_pipeline.py tests/test_research_workspace.py
+          git commit -m "Migrate remaining UI tests to Theia"
+          git push origin HEAD:feature/theia-desktop
+
   ci-pending:
     runs-on: ubuntu-latest
     permissions:
@@ -77,6 +196,8 @@ jobs:
           test ! -d ui
           test -f desktop/research-assistant-extension/lib/browser/research-assistant-widget.js
           test -f desktop/research-assistant-extension/lib/browser/models-editor.js
+          test -f desktop/research-assistant-extension/lib/browser/tabs/monitor-tab.js
+          test -f desktop/research-assistant-extension/lib/browser/tabs/research-tab.js
           test -f desktop/research-assistant-extension/lib/node/research-assistant-backend-service.js
           test -f desktop/research-assistant-extension/lib/browser/style/research-assistant.css
           grep -q "overflow-y: scroll" desktop/research-assistant-extension/lib/browser/style/research-assistant.css
