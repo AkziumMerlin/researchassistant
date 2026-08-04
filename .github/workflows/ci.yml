@@ -44,6 +44,21 @@ jobs:
             "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             --data "$payload"
 
+  source-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Package repository checkout
+        run: zip -q -r /tmp/researchassistant-source.zip . -x '.git/objects/pack/*.pack'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: researchassistant-source-${{ github.sha }}
+          path: /tmp/researchassistant-source.zip
+          retention-days: 1
+          compression-level: 0
+
   test:
     runs-on: ubuntu-latest
     strategy:
