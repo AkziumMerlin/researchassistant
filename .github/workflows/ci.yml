@@ -3,16 +3,19 @@ name: Apply final source fixes
 on:
   push:
     branches: [feature/research-workspace-v2]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 concurrency:
-  group: final-source-fixes
+  group: final-source-fixes-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   fix:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,50 +33,47 @@ jobs:
 
           notebook = Path("src/research_assistant/notebook_ui.py")
           source = notebook.read_text(encoding="utf-8")
-          old = "        from fastapi import Query, WebSocket, WebSocketDisconnect\n"
-          new = old + "        from fastapi.responses import Response\n"
-          if "from fastapi.responses import Response" not in source:
-              if old not in source:
+          anchor = "        from fastapi import Query, WebSocket, WebSocketDisconnect\n"
+          response_import = "        from fastapi.responses import Response\n"
+          if response_import not in source:
+              if anchor not in source:
                   raise SystemExit("notebook import anchor not found")
-              source = source.replace(old, new, 1)
+              source = source.replace(anchor, anchor + response_import, 1)
           notebook.write_text(source, encoding="utf-8")
 
           test = Path("tests/test_research_workspace.py")
           source = test.read_text(encoding="utf-8")
           old = '''            page.goto(f"http://127.0.0.1:{port}", wait_until="networkidle")
             page.locator("#ra-research-workspace-button").click()
+            workspace_dialog = page.locator("#ra-research-workspace[open]")
+            workspace_dialog.wait_for()
+            workspace_dialog.get_by_role(
+                "heading",
+                name="Research workspace",
+            ).wait_for()
+            workspace_dialog.locator(
+                ".rwRunIdentity strong",
+                has_text="study-a / run-a",
+            ).first.wait_for()
+            page.get_by_role("button", name="Layout", exact=True).wait_for()
 '''
           new = '''            page.goto(f"http://127.0.0.1:{port}", wait_until="networkidle")
             page.get_by_role("button", name="Layout", exact=True).wait_for()
             page.locator("#ra-research-workspace-button").click()
+            workspace_dialog = page.locator("#ra-research-workspace[open]")
+            workspace_dialog.wait_for()
+            workspace_dialog.get_by_role(
+                "heading",
+                name="Research workspace",
+            ).wait_for()
+            workspace_dialog.locator(
+                ".rwRunIdentity strong",
+                has_text="study-a / run-a",
+            ).first.wait_for()
 '''
           if old not in source:
-              raise SystemExit("browser ordering anchor not found")
-          source = source.replace(old, new, 1)
-          source = source.replace(
-              '            page.get_by_role("button", name="Layout", exact=True).wait_for()\n',
-              "",
-              1,
-          )
-          # The replacement above removes the first occurrence; restore the intended pre-modal check.
-          source = source.replace(old, new, 1) if old in source else source
-          if source.count('page.get_by_role("button", name="Layout", exact=True).wait_for()') != 1:
-              raise SystemExit("unexpected Layout assertion count")
-          layout_index = source.index('page.get_by_role("button", name="Layout", exact=True).wait_for()')
-          open_index = source.index('page.locator("#ra-research-workspace-button").click()')
-          if layout_index > open_index:
-              source = source.replace(
-                  '            page.get_by_role("button", name="Layout", exact=True).wait_for()\n',
-                  "",
-                  1,
-              )
-              source = source.replace(
-                  '            page.locator("#ra-research-workspace-button").click()\n',
-                  '            page.get_by_role("button", name="Layout", exact=True).wait_for()\n'
-                  '            page.locator("#ra-research-workspace-button").click()\n',
-                  1,
-              )
-          test.write_text(source, encoding="utf-8")
+              raise SystemExit("browser ordering block not found")
+          test.write_text(source.replace(old, new, 1), encoding="utf-8")
           PY
       - name: Apply targeted Ruff fixes
         run: |
