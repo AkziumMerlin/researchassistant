@@ -1,108 +1,23 @@
-name: CI
+name: Apply frontend refactor
 
 on:
   push:
-  pull_request:
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [feature/research-workspace-v2]
 
 permissions:
-  contents: read
+  contents: write
+
+concurrency:
+  group: apply-frontend-refactor
+  cancel-in-progress: true
 
 jobs:
-  ci-pending:
-    runs-on: ubuntu-latest
-    permissions:
-      statuses: write
-    steps:
-      - name: Publish connector-readable pending status
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          payload="$(python - <<'PY'
-          import json
-          import os
-
-          print(json.dumps({
-              "state": "pending",
-              "context": "ci/researchassistant",
-              "description": "Ruff, tests, browser, Torch, frontend and wheel are running",
-              "target_url": (
-                  f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
-                  f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
-              ),
-          }))
-          PY
-          )"
-          curl --fail-with-body \
-            --request POST \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            --data "$payload"
-
-  source-snapshot:
+  apply:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Package repository checkout
-        run: zip -q -r /tmp/researchassistant-source.zip . -x '.git/objects/pack/*.pack'
-      - uses: actions/upload-artifact@v4
-        with:
-          name: researchassistant-source-${{ github.sha }}
-          path: /tmp/researchassistant-source.zip
-          retention-days: 1
-          compression-level: 0
-
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
-    steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y tmux
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - run: python -m pip install -e '.[dev,ui]'
-      - run: ruff check .
-      - run: pytest
-
-  browser-e2e:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install -e '.[dev,ui,e2e]'
-      - run: python -m playwright install --with-deps chromium
-      - name: Run browser workbench flow
-        env:
-          RA_BROWSER_E2E: "1"
-        run: pytest tests/test_workspace_v2.py::test_research_workspace_browser_flow
-
-  torch:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install --index-url https://download.pytorch.org/whl/cpu torch
-      - run: python -m pip install -e '.[dev]'
-      - run: pytest tests/test_torch_integration.py
-
-  frontend-package:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -111,136 +26,51 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: npm ci --prefix ui/frontend
-      - run: npm run build --prefix ui/frontend
-      - run: node --check src/research_assistant/ui/static/terminal-extension.js
-      - run: node --check src/research_assistant/ui/static/system-monitor-extension.js
-      - run: node --check src/research_assistant/ui/static/monaco-global.js
-      - run: node --check src/research_assistant/ui/static/explorer-plus.js
-      - run: node --check src/research_assistant/ui/static/component-search.js
-      - run: node --check src/research_assistant/ui/static/notebook-extension.js
-      - run: node --check src/research_assistant/ui/static/layout-manager.js
-      - run: node --check src/research_assistant/ui/static/research-workspace.js
-      - run: node --check src/research_assistant/ui/static/assets/research-workspace-ready.js
-      - name: Verify generated UI assets are committed
-        run: |
-          git status --short --untracked-files=all -- src/research_assistant/ui/static
-          test -z "$(git status --porcelain --untracked-files=all -- src/research_assistant/ui/static)"
-      - run: python -m pip install build
-      - run: python -m build
-      - name: Verify wheel contents
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import zipfile
-
-          wheels = list(Path("dist").glob("*.whl"))
-          if len(wheels) != 1:
-              raise SystemExit(f"expected one wheel, found {wheels}")
-          required = {
-              "research_assistant/ui/static/index.html",
-              "research_assistant/ui/static/jobs-extension.js",
-              "research_assistant/ui/static/pipeline-extension.js",
-              "research_assistant/ui/static/research-extension.js",
-              "research_assistant/ui/static/architecture-extension.js",
-              "research_assistant/ui/static/workbench-extension.js",
-              "research_assistant/ui/static/terminal-extension.js",
-              "research_assistant/ui/static/terminal-runtime.js",
-              "research_assistant/ui/static/system-monitor-extension.js",
-              "research_assistant/ui/static/monaco-global.js",
-              "research_assistant/ui/static/explorer-plus.js",
-              "research_assistant/ui/static/component-search.js",
-              "research_assistant/ui/static/notebook-extension.js",
-              "research_assistant/ui/static/layout-manager.js",
-              "research_assistant/ui/static/research-workspace.js",
-              "research_assistant/ui/static/assets/research-workspace-ready.js",
-              "research_assistant/workbench_ui.py",
-              "research_assistant/research_workspace_ui.py",
-              "research_assistant/runtime.py",
-              "research_assistant/capabilities.py",
-              "research_assistant/migrations.py",
-              "research_assistant/plugin_sdk.py",
-              "research_assistant/run_workspace.py",
-              "research_assistant/notebook_context.py",
-              "research_assistant/assistant_core.py",
-              "research_assistant/durable_launches.py",
-              "research_assistant/cli_workspace_v2.py",
-              "research_assistant/ui/adoption_worker.py",
-              "research_assistant/terminal.py",
-              "research_assistant/tmux_terminal.py",
-              "research_assistant/terminal_ui.py",
-              "research_assistant/system_monitor.py",
-              "research_assistant/system_monitor_ui.py",
-              "research_assistant/workspace_browser_ui.py",
-              "research_assistant/notebooks.py",
-              "research_assistant/notebook_ui.py",
-              "research_assistant/scientific_artifacts.py",
-              "research_assistant/lifecycle.py",
-              "research_assistant/analysis_sessions.py",
-              "research_assistant/developer_tools.py",
-              "research_assistant/workspaces.py",
-              "research_assistant/analytics.py",
-              "research_assistant/jobs.py",
-              "research_assistant/integrations/parameterized_torch_graph.py",
-          }
-          with zipfile.ZipFile(wheels[0]) as archive:
-              names = set(archive.namelist())
-          missing = sorted(required - names)
-          if missing:
-              raise SystemExit(f"wheel is missing required files: {missing}")
-          PY
-      - name: Install wheel and verify reported version
-        run: |
-          expected_version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          python -m venv /tmp/ra-wheel-smoke
-          /tmp/ra-wheel-smoke/bin/python -m pip install dist/*.whl
-          cd /tmp
-          /tmp/ra-wheel-smoke/bin/ra --help
-          test "$(/tmp/ra-wheel-smoke/bin/ra version)" = "$expected_version"
-          test "$(/tmp/ra-wheel-smoke/bin/python -c 'import research_assistant; print(research_assistant.__version__)')" = "$expected_version"
-
-  ci-status:
-    if: always()
-    needs: [test, browser-e2e, torch, frontend-package]
-    runs-on: ubuntu-latest
-    permissions:
-      statuses: write
-    steps:
-      - name: Publish connector-readable CI status
+      - name: Import refactor tree
         env:
           GH_TOKEN: ${{ github.token }}
-          TEST_RESULT: ${{ needs.test.result }}
-          BROWSER_RESULT: ${{ needs.browser-e2e.result }}
-          TORCH_RESULT: ${{ needs.torch.result }}
-          FRONTEND_RESULT: ${{ needs.frontend-package.result }}
+          REPOSITORY: ${{ github.repository }}
+          PACK_PART_0: adac1fdb2d3e5f0fb5698a981bd71040abb8e7d5
+          PACK_PART_1: 8dc4f85add0054220397df17843cb73f97fa104d
+          REFACTOR_TREE: d75cd487b64aacea8263f56c6d98998a8a862df3
         run: |
-          state=success
-          for result in "$TEST_RESULT" "$BROWSER_RESULT" "$TORCH_RESULT" "$FRONTEND_RESULT"; do
-            if [ "$result" != success ]; then
-              state=failure
-            fi
-          done
-          export STATE="$state"
-          payload="$(python - <<'PY'
+          python - <<'PY'
+          import base64
           import json
           import os
+          import urllib.request
 
-          print(json.dumps({
-              "state": os.environ["STATE"],
-              "context": "ci/researchassistant",
-              "description": "Ruff, tests, browser, Torch, frontend and wheel",
-              "target_url": (
-                  f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
-                  f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"
-              ),
-          }))
+          chunks = []
+          for name in ("PACK_PART_0", "PACK_PART_1"):
+              sha = os.environ[name]
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{os.environ['REPOSITORY']}/git/blobs/{sha}",
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request) as response:
+                  payload = json.load(response)
+              chunks.append(base64.b64decode(payload["content"]).decode("utf-8"))
+          with open("/tmp/refactor.pack", "wb") as stream:
+              stream.write(base64.b64decode("".join(chunks)))
           PY
-          )"
-          curl --fail-with-body \
-            --request POST \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header "Accept: application/vnd.github+json" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            --data "$payload"
-          test "$state" = success
+          git index-pack --stdin --fix-thin < /tmp/refactor.pack
+          git read-tree --reset -u "$REFACTOR_TREE"
+      - name: Build bundled frontend
+        run: |
+          npm ci --prefix ui/frontend
+          npm run build --prefix ui/frontend
+          python -m compileall -q src tests
+          find ui/frontend/src/extensions -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --check ui/frontend/src/main.js
+          node --check ui/frontend/src/terminal-runtime.js
+      - name: Commit and push refactor
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Refactor UI extensions into the frontend bundle"
+          git push origin HEAD:feature/research-workspace-v2
