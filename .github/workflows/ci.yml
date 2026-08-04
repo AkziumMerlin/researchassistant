@@ -30,12 +30,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Import refactor tree
+      - name: Import verified refactor tree
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          PACK_PART_0: adac1fdb2d3e5f0fb5698a981bd71040abb8e7d5
-          PACK_PART_1: 8dc4f85add0054220397df17843cb73f97fa104d
+          PACK_PART_0: 514275791a3171f451475ecc9433e08fdbbe4c15
+          PACK_PART_1: 9e4481af62aae7ad31f6488fadce10a354b20170
+          PACK_PART_2: d7b81d56ce81961c53416c519773358245c9c8ec
+          PACK_PART_3: 9a7327d69649b63709c831f5b3304994f3959d2a
+          PACK_PART_4: bf0203349cf9b5c5908692c5f27c924faa1fbc72
+          PACK_PART_5: 8dc4f85add0054220397df17843cb73f97fa104d
           REFACTOR_TREE: d75cd487b64aacea8263f56c6d98998a8a862df3
         run: |
           python - <<'PY'
@@ -45,9 +49,17 @@ jobs:
           import os
           import urllib.request
 
+          expected = [
+              (4000, "49728557d51a599dbb1d9e4c8681bbe9f395f7033a7cd58051756d656086d4db"),
+              (4000, "9e34e96faec616be43ec5357a556125b1069bb08831e2b75a6bbc0638f138981"),
+              (4000, "dd42c8cc25e97d4338bc63e8d58dcc339b54705e84d8dfd15811422a26a73e78"),
+              (4000, "c53a5fbf05986397f166e0142e8346e0161c1230c5d1c1e5733c855f80af789a"),
+              (3000, "08830ea44302b825f8a19b9303cbfc2a98be899fbd75357de5b1284794e7b655"),
+              (17404, "ba92297b1d9729a2f96e19e5f8cdb27a79198b39b359182ae497a596f4130bd4"),
+          ]
           chunks = []
-          for name in ("PACK_PART_0", "PACK_PART_1"):
-              sha = os.environ[name]
+          for index, (expected_length, expected_hash) in enumerate(expected):
+              sha = os.environ[f"PACK_PART_{index}"]
               request = urllib.request.Request(
                   f"https://api.github.com/repos/{os.environ['REPOSITORY']}/git/blobs/{sha}",
                   headers={
@@ -59,10 +71,19 @@ jobs:
               with urllib.request.urlopen(request) as response:
                   payload = json.load(response)
               chunk = base64.b64decode(payload["content"]).decode("utf-8")
-              print(name, len(chunk), hashlib.sha256(chunk.encode()).hexdigest())
+              actual_hash = hashlib.sha256(chunk.encode()).hexdigest()
+              if len(chunk) != expected_length or actual_hash != expected_hash:
+                  raise SystemExit(
+                      f"transport part {index} failed integrity check: "
+                      f"length={len(chunk)} sha256={actual_hash}"
+                  )
               chunks.append(chunk)
           encoded = "".join(chunks)
-          print("JOINED", len(encoded), hashlib.sha256(encoded.encode()).hexdigest())
+          actual_hash = hashlib.sha256(encoded.encode()).hexdigest()
+          if len(encoded) != 36404 or actual_hash != "32c5e105a379933af0a202b836b871d54e8f02f2a7953be2b269fb51dcc821b9":
+              raise SystemExit(
+                  f"transport pack failed integrity check: length={len(encoded)} sha256={actual_hash}"
+              )
           with open("/tmp/refactor.pack", "wb") as stream:
               stream.write(base64.b64decode(encoded))
           PY
