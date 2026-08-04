@@ -54,37 +54,34 @@ def test_workspace_browser_routes_and_extensions(tmp_path: Path) -> None:
     with TestClient(app) as client:
         index = client.get("/")
         assert index.status_code == 200
-        monaco_source = "/api/extensions/monaco-global.js"
-        explorer_source = "/api/extensions/explorer-plus.js"
-        component_search_source = "/api/extensions/component-search.js"
-        assert monaco_source in index.text
-        assert explorer_source in index.text
-        assert component_search_source in index.text
-        assert "/api/extensions/notebook.js" in index.text
-        assert index.text.index(monaco_source) < index.text.index('<script type="module"')
+        assert "/api/extensions/" not in index.text
+        main_source = (
+            Path(__file__).parents[1] / "ui/frontend/src/main.js"
+        ).read_text(encoding="utf-8")
+        assert "globalThis.__RA_WORKBENCH__" in main_source
+        assert "globalThis.monaco = monaco" in main_source
 
-        monaco_script = client.get(monaco_source)
-        assert monaco_script.status_code == 200
-        assert "globalAPI" in monaco_script.text
-        assert "__RA_WORKBENCH__" in monaco_script.text
-
-        explorer_script = client.get(explorer_source)
-        assert explorer_script.status_code == 200
+        explorer_source = (
+            Path(__file__).parents[1]
+            / "ui/frontend/src/extensions/explorer-plus.js"
+        ).read_text(encoding="utf-8")
         assert (
             ".raExplorerRow.directory{grid-template-columns:18px 18px minmax(0,1fr)"
-            in explorer_script.text
+            in explorer_source
         )
-        assert ".raExplorerName{min-width:0;" in explorer_script.text
+        assert ".raExplorerName{min-width:0;" in explorer_source
 
-        component_search_script = client.get(component_search_source)
-        assert component_search_script.status_code == 200
-        assert 'palette.classList.add("raComponentSearchPalette")' in component_search_script.text
-        assert ".ra-models-main{min-height:0}" in component_search_script.text
-        assert ".ra-models-work{min-height:0;overflow:hidden}" in component_search_script.text
+        component_search_source = (
+            Path(__file__).parents[1]
+            / "ui/frontend/src/extensions/component-search.js"
+        ).read_text(encoding="utf-8")
+        assert 'palette.classList.add("raComponentSearchPalette")' in component_search_source
+        assert ".ra-models-main{min-height:0}" in component_search_source
+        assert ".ra-models-work{min-height:0;overflow:hidden}" in component_search_source
         assert "overflow-y:scroll;overflow-x:hidden;scrollbar-gutter:stable" in (
-            component_search_script.text
+            component_search_source
         )
-        assert "::-webkit-scrollbar-thumb" in component_search_script.text
+        assert "::-webkit-scrollbar-thumb" in component_search_source
 
         root = client.get("/api/workspace/entries", params={"path": "", "limit": 10})
         assert root.status_code == 200

@@ -14,7 +14,7 @@ def test_editor_and_registry_layout_are_explicit() -> None:
 
 
 def test_toolbar_observer_does_not_rewrite_itself_forever() -> None:
-    source = (ROOT / "src/research_assistant/ui/static/architecture-v2/part-07.txt").read_text(
+    source = (ROOT / "ui/frontend/src/extensions/architecture-v2/part-07.txt").read_text(
         encoding="utf-8"
     )
     assert "observer.disconnect();" in source
@@ -23,8 +23,10 @@ def test_toolbar_observer_does_not_rewrite_itself_forever() -> None:
     assert 'const moreLabels = ["Registry",' in source
 
 
-def test_vite_preserves_architecture_runtime_files() -> None:
+def test_vite_bundles_frontend_extensions_normally() -> None:
     source = (ROOT / "ui/frontend/vite.config.js").read_text(encoding="utf-8")
-    assert '"architecture-extension.js"' in source
-    assert "`architecture-v2/part-" in source
-    assert "mkdir(dirname(destination)" in source
+    assert "preserveRuntimeExtensions" not in source
+    assert "emptyOutDir: true" in source
+    entry = (ROOT / "ui/frontend/src/extensions/index.js").read_text(encoding="utf-8")
+    assert 'import("virtual:architecture-workbench")' in entry
+    assert 'import("./research-workspace.js")' in entry

@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 import research_assistant.cli_workbench  # noqa: F401
 from research_assistant.assistant_core import AssistantEngine, AssistantRequest
 from research_assistant.capabilities import capability_matrix
-from research_assistant.cli_workspace_v2 import workspace_v2_app
+from research_assistant.cli_workbench import app
 from research_assistant.durable_launches import DurableLaunchManager
 from research_assistant.migrations import migrate_document
 from research_assistant.notebook_context import NotebookContextStore
@@ -340,7 +340,7 @@ def test_durable_launch_reconciliation_and_adoption_cleanup(
     assert request["adoption_generation"] == 1
 
 
-def test_workspace_v2_api_and_assets_are_registered(tmp_path: Path) -> None:
+def test_research_workspace_api_and_assets_are_registered(tmp_path: Path) -> None:
     _write_run(
         tmp_path,
         study_id="study-a",
@@ -353,36 +353,42 @@ def test_workspace_v2_api_and_assets_are_registered(tmp_path: Path) -> None:
 
     index = client.get("/")
     assert index.status_code == 200
-    assert "/api/extensions/layout-manager.js" in index.text
-    assert "/api/extensions/research-workspace.js" in index.text
-    assert "__RA_LAYOUT__" in client.get("/api/extensions/layout-manager.js").text
-    workspace_script = client.get("/api/extensions/research-workspace.js").text
-    assert "Cross-run aggregation" in workspace_script
+    assert "/api/extensions/" not in index.text
+    layout_source = (
+        Path(__file__).parents[1]
+        / "ui/frontend/src/extensions/layout-manager.js"
+    ).read_text(encoding="utf-8")
+    workspace_source = (
+        Path(__file__).parents[1]
+        / "ui/frontend/src/extensions/research-workspace.js"
+    ).read_text(encoding="utf-8")
+    assert "__RA_LAYOUT__" in layout_source
+    assert "Cross-run aggregation" in workspace_source
 
-    capabilities = client.get("/api/workspace-v2/capabilities")
+    capabilities = client.get("/api/workspace/capabilities")
     assert capabilities.status_code == 200
     assert any(
         row["capability_id"] == "notebook.context"
         for row in capabilities.json()["capabilities"]
     )
-    runs = client.get("/api/workspace-v2/runs")
+    runs = client.get("/api/workspace/runs")
     assert runs.status_code == 200
     assert runs.json()["runs"][0]["run_id"] == "run-a"
     aggregation = client.post(
-        "/api/workspace-v2/runs/aggregate",
+        "/api/workspace/runs/aggregate",
         json={"run_ids": ["run-a"], "metric": "relative_l2"},
     )
     assert aggregation.status_code == 200, aggregation.text
     assistant = client.post(
-        "/api/workspace-v2/assistant/plan",
+        "/api/workspace/assistant/plan",
         json={"goal": "Inspect run results", "run_ids": ["run-a"]},
     )
     assert assistant.status_code == 200
     assert assistant.json()["actions"]
 
 
-def test_workspace_v2_cli_is_available() -> None:
-    result = CliRunner().invoke(workspace_v2_app, ["capabilities", "--json"])
+def test_research_workspace_cli_is_available() -> None:
+    result = CliRunner().invoke(app, ["workspace", "capabilities", "--json"])
 
     assert result.exit_code == 0, result.output
     assert "run.aggregate" in result.output

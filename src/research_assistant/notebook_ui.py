@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import asynccontextmanager
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -11,7 +10,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.notebooks import NotebookError, NotebookKernelManager, NotebookStore
 
-_INSTALLED = False
 
 
 class NotebookRequest(BaseModel):
@@ -40,10 +38,9 @@ class KernelExecuteRequest(NotebookRequest):
     store_history: bool = True
 
 
-def _register(app) -> None:
+def register_notebook_routes(app) -> None:
     try:
-        from fastapi import Query, Request, WebSocket, WebSocketDisconnect
-        from fastapi.responses import HTMLResponse, Response
+        from fastapi import Query, WebSocket, WebSocketDisconnect
     except ImportError as exc:  # pragma: no cover
         raise ResearchAssistantError("UI dependencies are not installed") from exc
 
@@ -53,8 +50,6 @@ def _register(app) -> None:
     manager = NotebookKernelManager(workspace)
     app.state.notebook_store = store
     app.state.notebook_kernels = manager
-    script_path = Path(__file__).with_name("ui") / "static" / "notebook-extension.js"
-
     original_lifespan = app.router.lifespan_context
 
     @asynccontextmanager
@@ -66,44 +61,6 @@ def _register(app) -> None:
                 manager.detach()
 
     app.router.lifespan_context = notebook_lifespan
-
-    @app.middleware("http")
-    async def notebook_extension(request: Request, call_next):
-        response = await call_next(request)
-        if request.method != "GET" or request.url.path != "/":
-            return response
-        content_type = response.headers.get("content-type", "")
-        if "text/html" not in content_type:
-            return response
-        body = b""
-        async for chunk in response.body_iterator:
-            body += chunk
-        html = body.decode("utf-8")
-        source = "/api/extensions/notebook.js"
-        if source not in html:
-            html = html.replace(
-                "</head>",
-                f'  <script type="module" src="{source}"></script>\n  </head>',
-            )
-        headers = {
-            key: value
-            for key, value in response.headers.items()
-            if key.lower() != "content-length"
-        }
-        result = HTMLResponse(html, status_code=response.status_code, headers=headers)
-        result.headers["Cache-Control"] = "no-store"
-        return result
-
-    @app.get("/api/extensions/notebook.js")
-    def notebook_javascript():
-        if not script_path.is_file():
-            raise ResearchAssistantError("the notebook UI extension is missing")
-        response = Response(
-            script_path.read_text(encoding="utf-8"),
-            media_type="application/javascript",
-        )
-        response.headers["Cache-Control"] = "no-store"
-        return response
 
     @app.get("/api/notebooks/file")
     def notebook_read(path: str = Query(min_length=1)) -> dict[str, Any]:
@@ -252,19 +209,3 @@ def _register(app) -> None:
         finally:
             manager.unsubscribe(kernel_id, token)
 
-
-def install() -> None:
-    global _INSTALLED
-    if _INSTALLED:
-        return
-    from research_assistant.ui import server
-
-    original_create_app = server.create_app
-
-    def create_app(root, plugins=None, *, ssh_mode=None):
-        app = original_create_app(root, plugins, ssh_mode=ssh_mode)
-        _register(app)
-        return app
-
-    server.create_app = create_app
-    _INSTALLED = True

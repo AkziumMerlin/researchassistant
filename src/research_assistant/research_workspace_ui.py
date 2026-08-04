@@ -19,11 +19,11 @@ from research_assistant.run_workspace import RunWorkspace
 from research_assistant.scientific_artifacts import ScientificArtifactCatalog
 
 
-class WorkspaceV2Model(BaseModel):
+class ResearchWorkspaceModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class RunAggregateRequest(WorkspaceV2Model):
+class RunAggregateRequest(ResearchWorkspaceModel):
     artifact_root: str = "runs"
     run_ids: list[str] = Field(min_length=1)
     metric: str | None = None
@@ -31,7 +31,7 @@ class RunAggregateRequest(WorkspaceV2Model):
     group_by: list[str] = Field(default_factory=lambda: ["study_id", "trial_id"])
 
 
-class NotebookContextRequest(WorkspaceV2Model):
+class NotebookContextRequest(ResearchWorkspaceModel):
     artifact_root: str = "runs"
     run_ids: list[str] = Field(default_factory=list)
     artifact_ids: list[str] = Field(default_factory=list)
@@ -40,31 +40,27 @@ class NotebookContextRequest(WorkspaceV2Model):
     kernel_name: str = "python3"
 
 
-class MigrationPreviewRequest(WorkspaceV2Model):
+class MigrationPreviewRequest(ResearchWorkspaceModel):
     kind: str = "experiment"
     document: dict[str, Any]
 
 
-class AssistantApplyRequest(WorkspaceV2Model):
+class AssistantApplyRequest(ResearchWorkspaceModel):
     request: AssistantRequest
     plan: AssistantPlan
 
 
-class CancelLaunchRequest(WorkspaceV2Model):
+class CancelLaunchRequest(ResearchWorkspaceModel):
     force: bool = False
 
 
 def register_research_workspace(app) -> None:
     try:
-        from fastapi import Query, Request
-        from fastapi.responses import HTMLResponse, Response
+        from fastapi import Query
     except ImportError as exc:  # pragma: no cover
         raise ResearchAssistantError("UI dependencies are not installed") from exc
 
     workspace = app.state.workspace.root
-    static_root = Path(__file__).with_name("ui") / "static"
-    layout_script = static_root / "layout-manager.js"
-    workspace_script = static_root / "research-workspace.js"
     context_store = NotebookContextStore(workspace)
     assistant = AssistantEngine(str(workspace), registry=app.state.registry)
 
@@ -74,75 +70,7 @@ def register_research_workspace(app) -> None:
             getattr(app.state, "plugins", []),
         )
 
-    @app.middleware("http")
-    async def research_workspace_extension(request: Request, call_next):
-        response = await call_next(request)
-        if request.method != "GET" or request.url.path != "/":
-            return response
-        if "text/html" not in response.headers.get("content-type", ""):
-            return response
-        body = b""
-        async for chunk in response.body_iterator:
-            body += chunk
-        html = body.decode("utf-8")
-        sources = (
-            "/api/extensions/layout-manager.js",
-            "/api/extensions/research-workspace.js",
-        )
-        tags = "".join(
-            f'  <script type="module" src="{source}"></script>\n'
-            for source in sources
-            if source not in html
-        )
-        if tags:
-            html = html.replace("</head>", f"{tags}  </head>")
-        headers = {
-            key: value
-            for key, value in response.headers.items()
-            if key.lower() != "content-length"
-        }
-        result = HTMLResponse(html, status_code=response.status_code, headers=headers)
-        result.headers["Cache-Control"] = "no-store"
-        return result
-
-    @app.get("/api/extensions/layout-manager.js")
-    def layout_javascript():
-        if not layout_script.is_file():
-            raise ResearchAssistantError("the layout manager asset is missing")
-        response = Response(
-            layout_script.read_text(encoding="utf-8"),
-            media_type="application/javascript",
-        )
-        response.headers["Cache-Control"] = "no-store"
-        return response
-
-    @app.get("/api/extensions/research-workspace.js")
-    def research_workspace_javascript():
-        if not workspace_script.is_file():
-            raise ResearchAssistantError("the research workspace asset is missing")
-        source = workspace_script.read_text(encoding="utf-8")
-        bootstrap = (
-            "const startResearchWorkspace = () => {\n"
-            f"{source}\n"
-            "};\n"
-            "const waitForResearchWorkbench = () => {\n"
-            "  if (document.querySelector('.topbar-actions')) {\n"
-            "    startResearchWorkspace();\n"
-            "    return;\n"
-            "  }\n"
-            "  window.setTimeout(waitForResearchWorkbench, 50);\n"
-            "};\n"
-            "if (document.readyState === 'complete') {\n"
-            "  waitForResearchWorkbench();\n"
-            "} else {\n"
-            "  window.addEventListener('load', waitForResearchWorkbench, { once: true });\n"
-            "}\n"
-        )
-        response = Response(bootstrap, media_type="application/javascript")
-        response.headers["Cache-Control"] = "no-store"
-        return response
-
-    @app.get("/api/workspace-v2/capabilities")
+    @app.get("/api/workspace/capabilities")
     def capabilities() -> dict[str, Any]:
         matrix = capability_matrix()
         matrix["plugins"] = list(
@@ -154,7 +82,7 @@ def register_research_workspace(app) -> None:
         matrix["migrations"] = migration_catalog()
         return matrix
 
-    @app.get("/api/workspace-v2/runs")
+    @app.get("/api/workspace/runs")
     def runs(
         artifact_root: str = Query(default="runs"),
         study: list[str] | None = Query(default=None),
@@ -169,7 +97,7 @@ def register_research_workspace(app) -> None:
             limit=limit,
         )
 
-    @app.post("/api/workspace-v2/runs/aggregate")
+    @app.post("/api/workspace/runs/aggregate")
     def aggregate_runs(payload: RunAggregateRequest) -> dict[str, Any]:
         return RunWorkspace(workspace, payload.artifact_root).aggregate(
             payload.run_ids,
@@ -178,14 +106,14 @@ def register_research_workspace(app) -> None:
             group_by=payload.group_by,
         )
 
-    @app.get("/api/workspace-v2/runs/{run_id}")
+    @app.get("/api/workspace/runs/{run_id}")
     def run_lineage(
         run_id: str,
         artifact_root: str = Query(default="runs"),
     ) -> dict[str, Any]:
         return RunWorkspace(workspace, artifact_root).lineage_for_run(run_id)
 
-    @app.get("/api/workspace-v2/artifacts/{artifact_id}/lineage")
+    @app.get("/api/workspace/artifacts/{artifact_id}/lineage")
     def artifact_lineage(
         artifact_id: str,
         artifact_root: str = Query(default="runs"),
@@ -210,13 +138,13 @@ def register_research_workspace(app) -> None:
             "related_artifacts": related,
         }
 
-    @app.get("/api/workspace-v2/notebook-contexts")
+    @app.get("/api/workspace/notebook-contexts")
     def notebook_contexts(
         limit: int = Query(default=200, ge=1, le=2000),
     ) -> dict[str, Any]:
         return {"contexts": context_store.list(limit=limit)}
 
-    @app.post("/api/workspace-v2/notebook-contexts", status_code=201)
+    @app.post("/api/workspace/notebook-contexts", status_code=201)
     def create_notebook_context(payload: NotebookContextRequest) -> dict[str, Any]:
         return context_store.create(
             run_ids=payload.run_ids,
@@ -227,11 +155,11 @@ def register_research_workspace(app) -> None:
             kernel_name=payload.kernel_name,
         )
 
-    @app.get("/api/workspace-v2/notebook-contexts/{context_id}")
+    @app.get("/api/workspace/notebook-contexts/{context_id}")
     def notebook_context(context_id: str) -> dict[str, Any]:
         return context_store.require(context_id)
 
-    @app.get("/api/workspace-v2/plugins")
+    @app.get("/api/workspace/plugins")
     def plugins() -> dict[str, Any]:
         return {
             "diagnostics": list(
@@ -243,32 +171,32 @@ def register_research_workspace(app) -> None:
             "migrations": migration_catalog(),
         }
 
-    @app.post("/api/workspace-v2/migrations/preview")
+    @app.post("/api/workspace/migrations/preview")
     def migration_preview(payload: MigrationPreviewRequest) -> dict[str, Any]:
         document, report = migrate_document(payload.document, kind=payload.kind)
         return {"document": document, "report": report.as_dict()}
 
-    @app.post("/api/workspace-v2/assistant/plan")
+    @app.post("/api/workspace/assistant/plan")
     def assistant_plan(payload: AssistantRequest) -> dict[str, Any]:
         return assistant.plan(payload).model_dump(mode="json")
 
-    @app.post("/api/workspace-v2/assistant/apply")
+    @app.post("/api/workspace/assistant/apply")
     def assistant_apply(payload: AssistantApplyRequest) -> dict[str, Any]:
         return assistant.apply(payload.request, payload.plan)
 
-    @app.post("/api/workspace-v2/launches/reconcile")
+    @app.post("/api/workspace/launches/reconcile")
     def reconcile_launches() -> dict[str, Any]:
         return app.state.launch_manager.reconcile()
 
-    @app.post("/api/workspace-v2/launches/{launch_id}/adopt")
+    @app.post("/api/workspace/launches/{launch_id}/adopt")
     def adopt_launch(launch_id: str) -> dict[str, Any]:
         return app.state.launch_manager.adopt(launch_id)
 
-    @app.post("/api/workspace-v2/launches/{launch_id}/retry")
+    @app.post("/api/workspace/launches/{launch_id}/retry")
     def retry_launch(launch_id: str) -> dict[str, Any]:
         return app.state.launch_manager.retry(launch_id)
 
-    @app.post("/api/workspace-v2/launches/{launch_id}/cancel")
+    @app.post("/api/workspace/launches/{launch_id}/cancel")
     def cancel_launch(
         launch_id: str,
         payload: CancelLaunchRequest,

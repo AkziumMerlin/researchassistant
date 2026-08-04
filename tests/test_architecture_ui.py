@@ -8,7 +8,6 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 import research_assistant.cli_explorer  # noqa: E402,F401
-from research_assistant.explorer_ui import _PATCH_VERSION  # noqa: E402
 from research_assistant.ui.server import create_app  # noqa: E402
 
 
@@ -68,18 +67,14 @@ def test_architecture_extension_and_advanced_validation_endpoint(tmp_path: Path)
 
     index = client.get("/")
     assert index.status_code == 200
-    assert "/api/extensions/architectures.js" in index.text
-    assert index.headers["x-researchassistant-ui-build"] == str(_PATCH_VERSION)
-
-    extension = client.get("/api/extensions/architectures.js")
-    assert extension.status_code == 200
-    assert extension.headers["cache-control"] == "no-store"
-    assert "researchAssistantArchitectureWorkbenchV2Loader" in extension.text
-    assert "architecture-v2/part-" in extension.text
-    assert "length: 8" in extension.text
+    assert "/api/extensions/" not in index.text
     assert "blob:" in index.headers["content-security-policy"]
+    architecture_root = (
+        Path(__file__).parents[1]
+        / "ui/frontend/src/extensions/architecture-v2"
+    )
     source = "".join(
-        client.get(f"/api/extensions/architecture-v2/part-{index:02d}.txt").text
+        (architecture_root / f"part-{index:02d}.txt").read_text(encoding="utf-8")
         for index in range(8)
     )
     assert "researchAssistantArchitectureWorkbenchV2" in source
@@ -138,4 +133,5 @@ def test_architecture_extension_and_advanced_validation_endpoint(tmp_path: Path)
 
     build = client.get("/api/ui-build")
     assert build.status_code == 200
+    assert build.json()["extensions"] == "bundled"
     assert build.json()["architecture_language_version"] == 2

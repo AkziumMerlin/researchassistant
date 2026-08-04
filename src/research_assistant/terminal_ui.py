@@ -13,7 +13,6 @@ from research_assistant.errors import ResearchAssistantError
 from research_assistant.terminal import TerminalError, TerminalSessionManager
 from research_assistant.tmux_terminal import TmuxTerminalSessionManager
 
-_INSTALLED = False
 
 
 class TerminalRequest(BaseModel):
@@ -43,10 +42,9 @@ def _terminal_manager(workspace: Path):
     return TerminalSessionManager(workspace)
 
 
-def _register(app) -> None:
+def register_terminal_routes(app) -> None:
     try:
-        from fastapi import Request, WebSocket, WebSocketDisconnect
-        from fastapi.responses import HTMLResponse, Response
+        from fastapi import WebSocket, WebSocketDisconnect
     except ImportError as exc:  # pragma: no cover
         raise ResearchAssistantError("UI dependencies are not installed") from exc
 
@@ -56,10 +54,6 @@ def _register(app) -> None:
     workspace = Path(app.state.workspace.root).resolve()
     manager = _terminal_manager(workspace)
     app.state.terminal_manager = manager
-    static_root = Path(__file__).with_name("ui") / "static"
-    extension_path = static_root / "terminal-extension.js"
-    runtime_path = static_root / "terminal-runtime.js"
-
     original_lifespan = app.router.lifespan_context
 
     @asynccontextmanager
@@ -71,57 +65,6 @@ def _register(app) -> None:
                 manager.shutdown()
 
     app.router.lifespan_context = terminal_lifespan
-
-    @app.middleware("http")
-    async def terminal_extension(request: Request, call_next):
-        response = await call_next(request)
-        if request.method != "GET" or request.url.path != "/":
-            return response
-        content_type = response.headers.get("content-type", "")
-        if "text/html" not in content_type:
-            return response
-        body = b""
-        async for chunk in response.body_iterator:
-            body += chunk
-        html = body.decode("utf-8")
-        source = "/api/extensions/terminal.js"
-        if source not in html:
-            html = html.replace(
-                "</head>",
-                f'  <script type="module" src="{source}"></script>\n  </head>',
-            )
-        headers = {
-            key: value
-            for key, value in response.headers.items()
-            if key.lower() != "content-length"
-        }
-        result = HTMLResponse(html, status_code=response.status_code, headers=headers)
-        result.headers["Cache-Control"] = "no-store"
-        return result
-
-    @app.get("/api/extensions/terminal.js")
-    def terminal_javascript():
-        if not extension_path.is_file():
-            raise ResearchAssistantError("the terminal UI extension is missing")
-        response = Response(
-            extension_path.read_text(encoding="utf-8"),
-            media_type="application/javascript",
-        )
-        response.headers["Cache-Control"] = "no-store"
-        return response
-
-    @app.get("/api/extensions/terminal-runtime.js")
-    def terminal_runtime():
-        if not runtime_path.is_file():
-            raise ResearchAssistantError(
-                "the terminal runtime is missing; rebuild the frontend assets"
-            )
-        response = Response(
-            runtime_path.read_text(encoding="utf-8"),
-            media_type="application/javascript",
-        )
-        response.headers["Cache-Control"] = "no-store"
-        return response
 
     @app.get("/api/terminals")
     def terminal_list() -> dict[str, Any]:
@@ -236,19 +179,3 @@ def _register(app) -> None:
         finally:
             manager.unsubscribe(session_id, token)
 
-
-def install() -> None:
-    global _INSTALLED
-    if _INSTALLED:
-        return
-    from research_assistant.ui import server
-
-    original_create_app = server.create_app
-
-    def create_app(root, plugins=None, *, ssh_mode=None):
-        app = original_create_app(root, plugins, ssh_mode=ssh_mode)
-        _register(app)
-        return app
-
-    server.create_app = create_app
-    _INSTALLED = True

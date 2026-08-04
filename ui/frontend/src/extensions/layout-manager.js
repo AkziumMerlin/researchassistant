@@ -4,7 +4,6 @@ const LAYOUT_KEY = "ra.ui.layout.v1";
 if (!globalThis[LAYOUT_MARK]) {
   globalThis[LAYOUT_MARK] = true;
   installLayoutManager();
-  void import("/assets/research-workspace-ready.js").catch((error) => console.error(error));
 }
 
 function readLayoutState() {

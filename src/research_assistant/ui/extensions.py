@@ -28,7 +28,6 @@ class AdvancedExportRequest(BaseModel):
     formats: list[Literal["svg", "pdf", "png"]] = Field(default_factory=list)
 
 
-_INSTALLED = False
 
 
 def _plan_summary(plan) -> dict[str, Any]:
@@ -140,35 +139,18 @@ def _create_config_from_extended_payload(app, payload: dict[str, Any]) -> dict[s
     }
 
 
-def _register_routes(app, server_module) -> None:
+def register_job_routes(app) -> None:
     try:
         from fastapi import Query, Request
-        from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
+        from fastapi.responses import FileResponse, JSONResponse
     except ImportError as exc:  # pragma: no cover
         raise ResearchAssistantError("UI dependencies are not installed") from exc
 
     workspace = app.state.workspace
     service = JobService(workspace.root, app.state.plugins)
     app.state.job_service = service
-    extension_script = Path(__file__).with_name("static") / "jobs-extension.js"
-    original_index = Path(server_module.__file__).with_name("static") / "index.html"
-
     @app.middleware("http")
     async def extended_ui_middleware(request: Request, call_next):
-        if request.method == "GET" and request.url.path == "/":
-            html = original_index.read_text(encoding="utf-8")
-            marker = '<script type="module" src="/api/extensions/jobs.js"></script>'
-            html = html.replace("</head>", f"  {marker}\n  </head>")
-            response = HTMLResponse(html)
-            response.headers["Content-Security-Policy"] = (
-                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-                "worker-src 'self' blob:; img-src 'self' data: blob:; connect-src 'self'; "
-                "font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'"
-            )
-            response.headers["Referrer-Policy"] = "no-referrer"
-            response.headers["X-Content-Type-Options"] = "nosniff"
-            response.headers["X-Frame-Options"] = "DENY"
-            return response
         if request.method == "POST" and request.url.path == "/api/config/create":
             try:
                 raw = await request.json()
@@ -182,12 +164,6 @@ def _register_routes(app, server_module) -> None:
                 return JSONResponse(status_code=400, content={"detail": str(exc)})
         return await call_next(request)
 
-    @app.get("/api/extensions/jobs.js")
-    def extension_javascript():
-        return Response(
-            extension_script.read_text(encoding="utf-8"),
-            media_type="application/javascript",
-        )
 
     @app.get("/api/jobs")
     def list_jobs() -> dict[str, Any]:
@@ -389,19 +365,3 @@ def _register_routes(app, server_module) -> None:
             "path": destination.relative_to(workspace.root).as_posix(),
         }
 
-
-def install() -> None:
-    global _INSTALLED
-    if _INSTALLED:
-        return
-    from research_assistant.ui import server
-
-    original_create_app = server.create_app
-
-    def create_app(root, plugins=None, *, ssh_mode=None):
-        app = original_create_app(root, plugins, ssh_mode=ssh_mode)
-        _register_routes(app, server)
-        return app
-
-    server.create_app = create_app
-    _INSTALLED = True

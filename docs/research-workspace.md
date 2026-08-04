@@ -2,7 +2,7 @@
 
 ResearchAssistant 0.3 adds a unified research workspace over the existing orchestration,
 artifact, notebook, reporting and lifecycle services. It is available from the browser through
-**Research** and from the CLI through `ra workspace-v2`.
+**Research** and from the CLI through the existing `ra workspace` and `ra analysis` groups.
 
 ## Studies, trials and runs
 
@@ -11,8 +11,8 @@ path glob. The workspace can therefore aggregate an explicit set of runs even wh
 different studies or trials.
 
 ```bash
-ra workspace-v2 runs --artifact-root runs
-ra workspace-v2 aggregate \
+ra workspace runs --artifact-root runs
+ra workspace aggregate \
   --run RUN_A \
   --run RUN_B \
   --metric relative_l2 \
@@ -41,9 +41,9 @@ request and resumes only incomplete runs. It does not start a second copy of a l
 can therefore be recovered by adopting the orphaned launch after the workspace is available again.
 
 ```bash
-ra workspace-v2 launch-reconcile
-ra workspace-v2 launch-adopt LAUNCH_ID
-ra workspace-v2 launch-cancel LAUNCH_ID
+ra job list
+ra job adopt JOB_ID
+ra job cancel JOB_ID
 ```
 
 Cancellation targets both the scheduler process group and known worker process groups. The normal
@@ -70,7 +70,7 @@ run and artifact identifiers together with resolved metadata. A generated notebo
 selection into `RA_CONTEXT`, `RUNS`, and `ARTIFACTS` without scanning the workspace implicitly.
 
 ```bash
-ra workspace-v2 context-create \
+ra analysis context-create \
   --run RUN_A \
   --artifact ARTIFACT_ID \
   --notebook notebooks/analysis.ipynb
@@ -81,7 +81,7 @@ should still be promoted to a registered analysis task or pipeline stage.
 
 ## Capability parity
 
-`ra workspace-v2 capabilities` and `/api/workspace-v2/capabilities` expose a machine-readable
+`ra workspace capabilities` and `/api/workspace/capabilities` expose a machine-readable
 matrix for CLI, API and UI coverage. Public capabilities must declare every surface as `yes` or
 `partial`; accidental CLI-only or UI-only additions fail the capability contract test.
 
@@ -109,8 +109,8 @@ Persisted configuration documents pass through the migration registry before Pyd
 Migrations are sequential, auditable and idempotent. Preview or apply them with:
 
 ```bash
-ra workspace-v2 migrate configs/legacy.yaml
-ra workspace-v2 migrate configs/legacy.yaml --write
+ra workspace migrate configs/legacy.yaml
+ra workspace migrate configs/legacy.yaml --write
 ```
 
 ## Typed assistant
@@ -133,3 +133,10 @@ rules. Explorer width continues to use its IDE-style separator and participates 
 CI runs a real Chromium flow with Playwright in addition to Python API tests and JavaScript syntax
 checks. The browser test opens the workbench, loads persisted runs, switches research tabs and
 verifies the shared layout control.
+
+## Frontend integration
+
+Browser features are ordinary Vite modules under `ui/frontend/src/extensions/` and are imported by
+the main frontend entrypoint after the core workbench is initialized. The server exposes typed API
+routes only: it does not rewrite `index.html`, patch the generated bundle, serve JavaScript from
+`/api/extensions`, or assemble architecture code through blob URLs at runtime.

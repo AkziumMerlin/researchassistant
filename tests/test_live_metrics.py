@@ -173,14 +173,11 @@ def test_live_dashboard_supports_search_and_completed_scope(tmp_path: Path) -> N
 def test_extended_ui_registers_live_metric_route(tmp_path: Path) -> None:
     pytest.importorskip("fastapi")
     from research_assistant.ui import server
-    from research_assistant.ui.extensions import install
-
-    install()
     app = server.create_app(tmp_path)
     paths = {route.path for route in app.routes}
     assert "/api/jobs/{job_id}/live-metrics" in paths
 
-    script = Path(__file__).parents[1] / "src/research_assistant/ui/static/jobs-extension.js"
+    script = Path(__file__).parents[1] / "ui/frontend/src/extensions/jobs-extension.js"
     source = script.read_text(encoding="utf-8")
     assert "Live metrics" in source
     assert "localStorage" in source

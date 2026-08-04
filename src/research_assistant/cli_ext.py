@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import sys
 import time
@@ -280,10 +279,3 @@ def report_advanced_chart(
         _abort(ResearchAssistantError(str(exc)))
     typer.echo(str(destination))
 
-
-# The original CLI imports server.run_ui lazily. Installing this patch here makes both
-# `ra ui` and `python -m research_assistant ui` use the extended routes without forking the server.
-if importlib.util.find_spec("fastapi") is not None:
-    from research_assistant.ui.extensions import install as _install_ui_extensions
-
-    _install_ui_extensions()

@@ -166,7 +166,7 @@ async function renderRuns(root) {
       limit: "10000",
     });
     if (search.value.trim()) params.set("search", search.value.trim());
-    const payload = await rwApi(`/api/workspace-v2/runs?${params}`);
+    const payload = await rwApi(`/api/workspace/runs?${params}`);
     rwState.runs = payload.runs || [];
     const available = new Set(rwState.runs.map((row) => row.run_id));
     rwState.selectedRuns = new Set(
@@ -180,7 +180,7 @@ async function renderRuns(root) {
     if (!rwState.selectedRuns.size) throw new Error("Select at least one run.");
     output.textContent = "Aggregating…";
     output.textContent = rwPretty(
-      await rwPost("/api/workspace-v2/runs/aggregate", {
+      await rwPost("/api/workspace/runs/aggregate", {
         artifact_root: rwState.artifactRoot,
         run_ids: [...rwState.selectedRuns],
         metric: metric.value.trim() || null,
@@ -242,7 +242,7 @@ function renderRunRows(host, output) {
     const inspect = rwButton("Inspect", async () => {
       output.textContent = rwPretty(
         await rwApi(
-          `/api/workspace-v2/runs/${encodeURIComponent(row.run_id)}?artifact_root=${encodeURIComponent(rwState.artifactRoot)}`,
+          `/api/workspace/runs/${encodeURIComponent(row.run_id)}?artifact_root=${encodeURIComponent(rwState.artifactRoot)}`,
         ),
       );
     });
@@ -308,7 +308,7 @@ async function renderArtifacts(root) {
           rwButton("Lineage", async () => {
             output.textContent = rwPretty(
               await rwApi(
-                `/api/workspace-v2/artifacts/${item.artifact_id}/lineage?artifact_root=${encodeURIComponent(rwState.artifactRoot)}`,
+                `/api/workspace/artifacts/${item.artifact_id}/lineage?artifact_root=${encodeURIComponent(rwState.artifactRoot)}`,
               ),
             );
           }),
@@ -376,7 +376,7 @@ async function renderNotebookContexts(root) {
   });
   const contexts = rwNode("div", { class: "rwRows" });
   const load = async () => {
-    const payload = await rwApi("/api/workspace-v2/notebook-contexts");
+    const payload = await rwApi("/api/workspace/notebook-contexts");
     contexts.replaceChildren(
       ...(payload.contexts || []).map((item) =>
         rwNode("div", { class: "rwContextRow" }, [
@@ -393,7 +393,7 @@ async function renderNotebookContexts(root) {
     );
   };
   const create = async () => {
-    const payload = await rwPost("/api/workspace-v2/notebook-contexts", {
+    const payload = await rwPost("/api/workspace/notebook-contexts", {
       artifact_root: rwState.artifactRoot,
       run_ids: [...rwState.selectedRuns],
       artifact_ids: [...rwState.selectedArtifacts],
@@ -509,7 +509,7 @@ async function renderExecution(root) {
       ),
       rwButton("Reconcile persisted state", async () => {
         output.textContent = rwPretty(
-          await rwPost("/api/workspace-v2/launches/reconcile"),
+          await rwPost("/api/workspace/launches/reconcile"),
         );
         await load();
       }),
@@ -528,7 +528,7 @@ async function launchAction(launchId, action, output, refresh) {
   const body = action === "cancel" ? { force: false } : {};
   output.textContent = rwPretty(
     await rwPost(
-      `/api/workspace-v2/launches/${encodeURIComponent(launchId)}/${action}`,
+      `/api/workspace/launches/${encodeURIComponent(launchId)}/${action}`,
       body,
     ),
   );
@@ -536,7 +536,7 @@ async function launchAction(launchId, action, output, refresh) {
 }
 
 async function renderCapabilities(root) {
-  const payload = await rwApi("/api/workspace-v2/capabilities");
+  const payload = await rwApi("/api/workspace/capabilities");
   const table = rwNode("table", { class: "rwTable" });
   table.innerHTML = "<thead><tr><th>Capability</th><th>Domain</th><th>CLI</th><th>API</th><th>UI</th><th>Stability</th></tr></thead>";
   const body = rwNode("tbody");
@@ -566,7 +566,7 @@ async function renderCapabilities(root) {
 }
 
 async function renderPlugins(root) {
-  const payload = await rwApi("/api/workspace-v2/plugins");
+  const payload = await rwApi("/api/workspace/plugins");
   const diagnostics = rwNode(
     "div",
     { class: "rwRows" },
@@ -620,7 +620,7 @@ async function renderAssistant(root) {
   });
   const plan = async () => {
     rwState.assistantPlan = await rwPost(
-      "/api/workspace-v2/assistant/plan",
+      "/api/workspace/assistant/plan",
       request(),
     );
     planOutput.textContent = rwPretty(rwState.assistantPlan);
@@ -628,7 +628,7 @@ async function renderAssistant(root) {
   const apply = async () => {
     if (!rwState.assistantPlan) throw new Error("Create and review a plan first.");
     resultOutput.textContent = rwPretty(
-      await rwPost("/api/workspace-v2/assistant/apply", {
+      await rwPost("/api/workspace/assistant/apply", {
         request: request(),
         plan: rwState.assistantPlan,
       }),
