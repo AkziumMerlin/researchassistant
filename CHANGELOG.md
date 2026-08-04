@@ -4,22 +4,29 @@ All notable user-visible changes to ResearchAssistant are documented here. Versi
 Semantic Versioning; the project remains pre-1.0 while its public configuration and plugin contracts
 continue to mature.
 
-## Unreleased
+## [0.4.0] - 2026-08-04
 
 ### Added
 
-- A unified study/run workspace with explicit cross-study run selection and aggregation.
-- Scientific-artifact lineage, bounded comparison, and contextual notebook creation from selected
-  runs and artifacts.
-- Durable detached-launch leases, state reconciliation, worker-aware adoption, retry, and explicit
-  cancellation controls.
-- A machine-readable CLI/API/UI capability matrix.
-- Versioned plugin compatibility contracts and sequential persisted-schema migrations.
-- A typed research-assistant plan contract with conservative built-in actions and explicit write
-  authorization.
-- A shared persistent browser layout manager and a real Chromium workbench test in CI.
-- Branch-scoped CI concurrency and connector-readable pending/final commit statuses for direct
-  development pushes, including browser runtime diagnostics for extension failures.
+- A branded Eclipse Theia/Electron desktop application with native IDE docking, Explorer, Monaco,
+  integrated terminals, search, commands, keybindings and persisted layouts.
+- Dockable runs, cross-study aggregation, artifacts, models, reports, notebook-context, durable
+  execution and typed-assistant views.
+- A Node-side Python-sidecar supervisor with handshake validation, lifecycle management and a
+  bounded authenticated API proxy.
+- A machine-readable CLI/API/UI capability matrix, plugin compatibility contracts and sequential
+  persisted-schema migrations.
+
+### Changed
+
+- `ra ui` now launches the desktop IDE; `ra desktop` is an explicit alias.
+- The Python backend remains the source of truth and runs as a loopback-only per-session sidecar.
+- Workspace navigation, editing, terminals and layout management now use Theia platform services
+  instead of custom browser runtime extensions and modal dialogs.
+
+### Removed
+
+- The browser tab as the supported ResearchAssistant application entry point.
 
 ## [0.3.0] - 2026-08-03
 

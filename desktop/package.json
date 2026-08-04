@@ -1,0 +1,20 @@
+{
+  "name": "research-assistant-desktop-workspace",
+  "private": true,
+  "version": "0.4.0",
+  "workspaces": [
+    "application",
+    "research-assistant-extension"
+  ],
+  "scripts": {
+    "build:extension": "npm run build --workspace @research-assistant/theia-extension",
+    "build:application": "npm run build --workspace @research-assistant/desktop-application",
+    "build": "npm run build:extension && npm run build:application",
+    "start": "npm run start --workspace @research-assistant/desktop-application --",
+    "package": "npm run package --workspace @research-assistant/desktop-application",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

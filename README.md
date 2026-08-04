@@ -7,9 +7,8 @@ stores enough structured state to resume and inspect every run.
 The core deliberately knows nothing about a particular dataset, model family, benchmark, or
 training framework. Projects add those concepts as namespaced components.
 
-> Status: early MVP. The current release provides the orchestration core, plugin API, optional
-> single-device PyTorch integration, a shared-GPU local subprocess launcher, and a local browser
-> workbench.
+> Status: pre-1.0. The primary interface is a branded Eclipse Theia/Electron desktop IDE; the
+> orchestration, execution, artifact and reporting core remains Python and plugin-driven.
 
 ## What works now
 
@@ -32,9 +31,9 @@ training framework. Projects add those concepts as namespaced components.
 - per-attempt compute telemetry and trial-aware historical memory estimates;
 - an interactive schema-driven config creator built from registered components;
 - a validated PyTorch DAG model and visual architecture editor with standard layers;
-- a bundled Monaco workbench for editing files and visually creating/validating configs;
-- detached experiment launch and run-status monitoring from the browser;
-- an incremental SQLite metric index with UI chart and LaTeX-table builders;
+- an Eclipse Theia desktop IDE with Explorer, Monaco, terminals and dockable research views;
+- detached experiment launch and durable run-status monitoring from the desktop;
+- an incremental SQLite metric index with desktop report and LaTeX-table workflows;
 - reproducible chart/table bundles with data and run provenance;
 - seed-aware mean and standard-deviation reports;
 - a compact Linux CLI.
@@ -56,16 +55,18 @@ For the built-in PyTorch stages:
 pip install -e '.[dev,torch]'
 ```
 
-For the local browser UI:
+For the Eclipse Theia desktop application:
 
 ```bash
-pip install -e '.[dev,ui]'
+pip install -e '.[dev,desktop]'
+npm install --prefix desktop
+npm run build --prefix desktop
 ```
 
 For server-side PDF/SVG/PNG figure export:
 
 ```bash
-pip install -e '.[dev,ui,reports]'
+pip install -e '.[dev,desktop,reports]'
 ```
 
 ## Five-minute example
@@ -86,50 +87,29 @@ The generated example contains one component, one custom stage, three seeds, and
 evaluation stage. Running the same command again resumes the already completed runs instead of
 duplicating them.
 
-## Local browser workbench
+## ResearchAssistant Desktop
 
-Open the current project in the bundled UI:
-
-```bash
-ra ui . --plugin my_project.plugin
-```
-
-The workbench provides a project explorer, Monaco file editor with tabs and `Ctrl+S`, the live
-component registry, a visual schema-driven config creator, composed-config and run-plan inspection,
-detached experiment launch with config/launcher overrides, checkpoint discovery and inference,
-persistent run monitoring, aggregate metric/resource summaries, and indexed chart/LaTeX-table
-builders with saved-spec loading. Chart queries are aggregated on the server rather than
-transferring complete metric histories to the browser.
-
-Reuse a managed training checkpoint without rebuilding its training DAG:
+Open the current project in the Eclipse Theia desktop application:
 
 ```bash
-ra checkpoint list runs
-ra checkpoint show runs/<study>/<run>/checkpoints/fit/best.pt
-ra infer runs/<study>/<run>/checkpoints/fit/best.pt --split test
+ra ui . --plugin my_project.plugin --dev
 ```
 
-For a standalone checkpoint, provide the config that reconstructs its registered model, data, and
-recipe components:
+`ra desktop` is an equivalent command. A packaged executable can be selected with
+`--executable /path/to/ResearchAssistant` or `RA_DESKTOP_EXECUTABLE`.
 
-```bash
-ra infer model.pt --config configs/inference.yaml --split test
-```
+Theia supplies the normal IDE shell: a resizable Explorer, Monaco editors, integrated terminals,
+search, command palette, keybindings, dockable panels, persistent layout and VS Code extension
+compatibility. The Research view connects those facilities to the existing Python backend and
+provides runs, explicit cross-study aggregation, artifacts and lineage, registered models,
+notebook contexts, reports, durable execution state and typed assistant plans.
 
-On an SSH server, use SSH mode and optionally provide the address used from your local machine:
+The Electron backend starts a loopback-only Python sidecar with a random per-session token. The
+renderer communicates through Theia JSON-RPC and never receives the token or an unrestricted HTTP
+endpoint. See [docs/desktop.md](docs/desktop.md) for development, packaging and security details.
 
-```bash
-ra ui . --plugin my_project.plugin --ssh --ssh-target user@server --port 8765
-```
-
-The command keeps the service on the server loopback interface and prints the corresponding
-`ssh -L` command. Browser launches run in detached scheduler processes with immutable request
-snapshots under `.ra/ui-launches/`; closing the browser or reconnecting the SSH tunnel does not
-stop them, and reopening the UI restores their status and bounded scheduler-log tail.
-
-The editor uses optimistic revisions and atomic replacement: an external file change produces a
-conflict instead of being overwritten. See [docs/ui.md](docs/ui.md) for the security boundary,
-frontend build, and current limitations.
+The former browser application is no longer the primary or supported UI. The Python FastAPI layer
+is retained as an internal headless service for the desktop application and future remote agents.
 
 ## Create configurations from the registry
 

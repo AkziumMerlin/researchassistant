@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "research-assistant"
-version = "0.3.0"
+version = "0.4.0"
 description = "A local-first, plugin-driven experiment orchestrator."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -23,6 +23,13 @@ dev = [
 ]
 torch = [
   "torch>=2.2",
+]
+desktop = [
+  "fastapi>=0.116,<1",
+  "ipykernel>=6.29,<8",
+  "jupyter-client>=8.6,<9",
+  "nbformat>=5.10,<6",
+  "uvicorn[standard]>=0.35,<1",
 ]
 ui = [
   "fastapi>=0.116,<1",
@@ -47,6 +54,7 @@ tensorboard = [
 
 [project.scripts]
 ra = "research_assistant.cli_workbench:app"
+ra-desktop-sidecar = "research_assistant.desktop_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/research_assistant"]
@@ -79,6 +87,7 @@ select = ["E", "F", "I", "UP", "B"]
 "src/research_assistant/workspaces.py" = ["E501"]
 "tests/test_research_workbench.py" = ["E501"]
 "src/research_assistant/assistant_core.py" = ["E501"]
+"src/research_assistant/cli_research_workspace.py" = ["E501"]
 "src/research_assistant/durable_launches.py" = ["E501"]
 "src/research_assistant/notebook_context.py" = ["E501"]
 "src/research_assistant/plugin_sdk.py" = ["E501"]
