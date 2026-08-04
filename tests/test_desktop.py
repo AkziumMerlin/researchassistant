@@ -19,7 +19,20 @@ def test_desktop_api_requires_session_token(tmp_path: Path) -> None:
         headers={"Authorization": "Bearer secret"},
     )
     assert response.status_code == 200
-    assert response.json()["workspace"] == str(tmp_path.resolve())
+    payload = response.json()
+    assert payload["workspace"] == str(tmp_path.resolve())
+    assert payload["frontend"] == "theia-electron"
+    assert payload["headless"] is True
+
+
+def test_desktop_sidecar_does_not_serve_retired_browser_ui(tmp_path: Path) -> None:
+    app = create_desktop_app(tmp_path, token="secret")
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer secret"}
+
+    assert client.get("/", headers=headers).status_code == 404
+    assert client.get("/assets/index.js", headers=headers).status_code == 404
+    assert client.get("/api/bootstrap", headers=headers).status_code == 200
 
 
 def test_desktop_environment_is_explicit_and_deduplicated(tmp_path: Path) -> None:
