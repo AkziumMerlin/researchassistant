@@ -13,6 +13,7 @@ import {
 import { ResearchAssistantContribution } from './research-assistant-contribution';
 import { ResearchAssistantWidget, ResearchAssistantWidgetId } from './research-assistant-widget';
 
+import './style/execution.css';
 import './style/research-assistant.css';
 
 export default new ContainerModule(bind => {
