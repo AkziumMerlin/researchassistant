@@ -74,8 +74,12 @@ jobs:
       - run: npm run build --prefix desktop
       - name: Verify desktop architecture
         run: |
+          test ! -d ui
           test -f desktop/research-assistant-extension/lib/browser/research-assistant-widget.js
+          test -f desktop/research-assistant-extension/lib/browser/models-editor.js
           test -f desktop/research-assistant-extension/lib/node/research-assistant-backend-service.js
+          test -f desktop/research-assistant-extension/lib/browser/style/research-assistant.css
+          grep -q "overflow-y: scroll" desktop/research-assistant-extension/lib/browser/style/research-assistant.css
           grep -R "research-assistant/desktop-sidecar" desktop/research-assistant-extension/lib/node
           if grep -R "/api/extensions/" desktop/research-assistant-extension/lib; then
             echo "desktop bundle references the retired browser extension endpoint" >&2
@@ -101,7 +105,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install build
-      - run: python -m build
+      - name: Build wheel
+        run: python -m build
       - name: Verify wheel contents
         run: |
           python - <<'PY'
