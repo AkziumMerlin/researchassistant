@@ -3,21 +3,25 @@ name: Apply frontend refactor
 on:
   push:
     branches: [feature/research-workspace-v2]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: write
 
 concurrency:
-  group: apply-frontend-refactor
+  group: apply-frontend-refactor-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   apply:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: feature/research-workspace-v2
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
