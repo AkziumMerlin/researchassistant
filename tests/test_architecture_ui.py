@@ -8,7 +8,7 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 import research_assistant.cli_explorer  # noqa: E402,F401
-from research_assistant.ui.server import create_app  # noqa: E402
+from research_assistant.desktop_server import create_desktop_app  # noqa: E402
 
 
 def _advanced_graph() -> dict[str, object]:
@@ -62,45 +62,30 @@ def _advanced_graph() -> dict[str, object]:
     }
 
 
-def test_architecture_extension_and_advanced_validation_endpoint(tmp_path: Path) -> None:
-    client = TestClient(create_app(tmp_path))
+def test_native_models_editor_and_advanced_validation_endpoint(tmp_path: Path) -> None:
+    client = TestClient(create_desktop_app(tmp_path, token="secret"))
+    headers = {"Authorization": "Bearer secret"}
 
-    index = client.get("/")
-    assert index.status_code == 200
-    assert "/api/extensions/" not in index.text
-    assert "blob:" in index.headers["content-security-policy"]
-    architecture_root = (
+    source = (
         Path(__file__).parents[1]
-        / "ui/frontend/src/extensions/architecture-v2"
-    )
-    source = "".join(
-        (architecture_root / f"part-{index:02d}.txt").read_text(encoding="utf-8")
-        for index in range(8)
-    )
-    assert "researchAssistantArchitectureWorkbenchV2" in source
-    assert "researchAssistantUnifiedWorkbenchThemeV1" in source
-    assert "ra-unified-workbench-theme" in source
-    assert "ra-section-nav" in source
-    assert '["Jobs+", "Jobs"]' in source
-    assert '["Pipeline+", "Pipeline"]' in source
-    assert '["Research+", "Research"]' in source
-    assert "--ra-accent:#7ce5b2" in source
-    assert "architectures-button" in source
-    assert "typed pytorch architecture language" in source.lower()
-    assert "Architecture controls" in source
-    assert "Python module" in source
+        / "desktop/research-assistant-extension/src/browser/models-editor.ts"
+    ).read_text(encoding="utf-8")
+    assert "class ModelsEditor" in source
+    assert "Architecture files" in source
+    assert "Components" in source
+    assert "Python" in source
     assert "Repeat" in source
     assert "Switch" in source
     assert "Composite" in source
     assert "variable_specs" in source
-    assert "$expr" in source
-    assert "components.model.params.variables" in source
+    assert "subgraphs" in source
+    assert "/api/torch/parameterized-graph/validate" in source
 
-    catalog = client.get("/api/architectures")
+    catalog = client.get("/api/architectures", headers=headers)
     assert catalog.status_code == 200
     assert catalog.json() == {"architectures": [], "truncated": False}
 
-    bootstrap = client.get("/api/bootstrap").json()
+    bootstrap = client.get("/api/bootstrap", headers=headers).json()
     parameterized = [
         spec
         for spec in bootstrap["components"]
@@ -115,6 +100,7 @@ def test_architecture_extension_and_advanced_validation_endpoint(tmp_path: Path)
 
     validation = client.post(
         "/api/torch/parameterized-graph/validate",
+        headers=headers,
         json={"params": _advanced_graph()},
     )
     assert validation.status_code == 200
@@ -130,8 +116,3 @@ def test_architecture_extension_and_advanced_validation_endpoint(tmp_path: Path)
         "typed_variables": 3,
         "language_version": 2,
     }
-
-    build = client.get("/api/ui-build")
-    assert build.status_code == 200
-    assert build.json()["extensions"] == "bundled"
-    assert build.json()["architecture_language_version"] == 2
