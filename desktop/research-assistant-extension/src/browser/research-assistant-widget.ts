@@ -134,6 +134,11 @@ export class ResearchAssistantWidget extends BaseWidget {
         return response.body;
     }
 
+    public async put<T = unknown>(path: string, body: unknown): Promise<T> {
+        const response: ApiResponse<T> = await this.service.request<T>({ method: 'PUT', path, body });
+        return response.body;
+    }
+
     public async remove<T = unknown>(path: string): Promise<T> {
         const response: ApiResponse<T> = await this.service.request<T>({ method: 'DELETE', path });
         return response.body;
