@@ -14,7 +14,6 @@ from research_assistant.terminal import TerminalError, TerminalSessionManager
 from research_assistant.tmux_terminal import TmuxTerminalSessionManager
 
 
-
 class TerminalRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

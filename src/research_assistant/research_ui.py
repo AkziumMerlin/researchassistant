@@ -32,7 +32,6 @@ from research_assistant.statistics_suite import (
 )
 
 
-
 class ResearchModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

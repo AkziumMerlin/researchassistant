@@ -15,7 +15,6 @@ from research_assistant.publication import (
 from research_assistant.stage_cache import StageCache
 
 
-
 class PipelineModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

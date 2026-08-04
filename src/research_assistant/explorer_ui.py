@@ -9,7 +9,6 @@ from research_assistant.integrations.parameterized_torch_graph import (
 )
 
 
-
 class ParameterizedGraphValidateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

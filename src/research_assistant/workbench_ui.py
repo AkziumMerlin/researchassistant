@@ -14,7 +14,6 @@ from research_assistant.scientific_artifacts import ScientificArtifactCatalog
 from research_assistant.workspaces import WorkspaceCatalog, conda_environments, inspect_interpreter
 
 
-
 class WorkbenchModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
