@@ -134,6 +134,11 @@ export class ResearchAssistantWidget extends BaseWidget {
         return response.body;
     }
 
+    public async remove<T = unknown>(path: string): Promise<T> {
+        const response: ApiResponse<T> = await this.service.request<T>({ method: 'DELETE', path });
+        return response.body;
+    }
+
     public async openWorkspaceFile(path: string): Promise<void> {
         const roots = await this.workspaceService.roots;
         const root = roots[0];
