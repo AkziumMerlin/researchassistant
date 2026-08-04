@@ -76,6 +76,7 @@ jobs:
         if: steps.transport.outputs.present == 'true'
         run: |
           python -m pip install -e '.[dev,desktop]'
+          ruff check --fix src/research_assistant/cli_explorer.py src/research_assistant/updater.py
           ruff check .
           pytest tests/test_update.py tests/test_theia_desktop_frontend.py tests/test_desktop.py
       - name: Validate Theia implementation
