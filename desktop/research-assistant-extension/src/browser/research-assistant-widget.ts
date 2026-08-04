@@ -149,7 +149,7 @@ export class ResearchAssistantWidget extends BaseWidget {
         button.addEventListener('click', async event => {
             try {
                 if (original) {
-                    await original.call(button, event as MouseEvent);
+                    await original.call(button, event as PointerEvent);
                 }
             } catch (error) {
                 output.textContent = error instanceof Error ? error.message : String(error);
