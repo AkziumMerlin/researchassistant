@@ -18,7 +18,7 @@ jobs:
       - name: Detect pending transport
         id: transport
         run: |
-          if [ -f .ra-transport/remote-ssh-00.b64 ]; then
+          if [ -f .ra-transport/remote-ssh-00a.b64 ]; then
             echo 'present=true' >> "$GITHUB_OUTPUT"
           else
             echo 'present=false' >> "$GITHUB_OUTPUT"
@@ -39,12 +39,20 @@ jobs:
       - name: Reconstruct verified source archive
         if: steps.transport.outputs.present == 'true'
         run: |
-          echo '31bcddea3d112803dbbe7f9aab60046dc57239a4665ee12d5f100e73958704d6  .ra-transport/remote-ssh-00.b64' | sha256sum --check
+          echo '846e069e2a928a1e62286d6de7698a296196a944664dd01cf1d8efd56c55557c  .ra-transport/remote-ssh-00a.b64' | sha256sum --check
+          echo '854a7cfe31b820871bcb08271673b6f67676c39c918cbddbc6d98e28afefd052  .ra-transport/remote-ssh-00b.b64' | sha256sum --check
           echo 'd4bb76ddb78f32ec2c681c8fc229ccba75a93e8cdbe895f817807969006c317b  .ra-transport/remote-ssh-01.b64' | sha256sum --check
           echo '6989389d6d4a660930f78996751153850a1c6d0e3691ca9f292ff6c05e8bf58b  .ra-transport/remote-ssh-02.b64' | sha256sum --check
           echo 'f48aa90cdf724c0d89b3312be54fe13545076efb6dc071fe236f5a0a3656831d  .ra-transport/remote-ssh-03.b64' | sha256sum --check
           echo 'f65f08e72c0a04581e240fc5c31aadd29b88fba90089c477539ac846042c8021  .ra-transport/remote-ssh-04.b64' | sha256sum --check
-          cat .ra-transport/remote-ssh-*.b64 > /tmp/remote-ssh-change.b64
+          cat \
+            .ra-transport/remote-ssh-00a.b64 \
+            .ra-transport/remote-ssh-00b.b64 \
+            .ra-transport/remote-ssh-01.b64 \
+            .ra-transport/remote-ssh-02.b64 \
+            .ra-transport/remote-ssh-03.b64 \
+            .ra-transport/remote-ssh-04.b64 \
+            > /tmp/remote-ssh-change.b64
           echo 'c4303645dbba021baa59c436cc05fd2c22c2d8948a145495fa0c00f3aaa0e716  /tmp/remote-ssh-change.b64' | sha256sum --check
           base64 --decode /tmp/remote-ssh-change.b64 > /tmp/remote-ssh-change.tar.gz
           echo 'ae2fee09d026a3409dd60ccb4d0e423105c3ea529f1ab7e5e5565188ee0d568f  /tmp/remote-ssh-change.tar.gz' | sha256sum --check
