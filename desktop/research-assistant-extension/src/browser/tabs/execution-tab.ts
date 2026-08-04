@@ -14,6 +14,15 @@ interface LaunchList {
     launches: LaunchRow[];
 }
 
+interface CheckpointRow {
+    path?: string;
+    checkpoint_path?: string;
+    run_id?: string;
+    stage?: string;
+    kind?: string;
+    compatible?: boolean;
+}
+
 export async function renderExecution(view: ResearchAssistantWidget): Promise<void> {
     const configPath = view.input('Experiment config', 'configs/experiment.yaml');
     const launcherPath = view.input('Launcher policy (optional)');
@@ -39,14 +48,14 @@ export async function renderExecution(view: ResearchAssistantWidget): Promise<vo
         launcher_overrides: view.split(launcherOverrides.value),
     });
 
-    const runAction = async (action: () => Promise<unknown>): Promise<void> => {
+    const runAction = async (action: () => Promise<unknown>, target = output): Promise<void> => {
         try {
-            output.classList.remove('error');
-            output.textContent = view.pretty(await action());
+            target.classList.remove('error');
+            target.textContent = view.pretty(await action());
             await load();
         } catch (error) {
-            output.classList.add('error');
-            output.textContent = error instanceof Error ? error.message : String(error);
+            target.classList.add('error');
+            target.textContent = error instanceof Error ? error.message : String(error);
         }
     };
 
@@ -111,6 +120,83 @@ export async function renderExecution(view: ResearchAssistantWidget): Promise<vo
         view.element('div', 'ra-toolbar', undefined, [summary, refresh, reconcile]),
         rows,
     );
-    view.content.replaceChildren(view.splitPane(existing, form));
+
+    const checkpointRoot = view.input('Checkpoint artifact root', 'runs');
+    const checkpointSelect = view.element('select', 'theia-select ra-checkpoint-select');
+    const checkpointConfig = view.input('Config for external checkpoint (optional)');
+    const checkpointSplits = view.input('Splits', 'test');
+    const checkpointDevice = view.element('select', 'theia-select');
+    for (const value of ['auto', 'cpu', 'cuda']) {
+        const option = view.element('option', undefined, value);
+        option.value = value;
+        checkpointDevice.append(option);
+    }
+    const checkpointPredict = view.element('input');
+    checkpointPredict.type = 'checkbox';
+    const checkpointOverrides = view.element('textarea');
+    checkpointOverrides.placeholder = 'Inference config overrides, one per line';
+    const checkpointOutput = view.output('Load the checkpoint catalog, then inspect or launch inference.');
+
+    const inferenceBody = (): Record<string, unknown> => ({
+        checkpoint_path: checkpointSelect.value,
+        config_path: checkpointConfig.value.trim() || null,
+        splits: view.split(checkpointSplits.value),
+        device: checkpointDevice.value,
+        predict: checkpointPredict.checked,
+        overrides: view.split(checkpointOverrides.value),
+        launcher_path: launcherPath.value.trim() || null,
+        launcher_overrides: view.split(launcherOverrides.value),
+        artifact_root: artifactRoot.value.trim() || 'runs',
+    });
+
+    const loadCheckpoints = async (): Promise<void> => {
+        const payload = await view.post<{ checkpoints: CheckpointRow[] }>('/api/checkpoints/catalog', {
+            artifact_root: checkpointRoot.value.trim() || 'runs',
+        });
+        checkpointSelect.replaceChildren();
+        for (const checkpoint of payload.checkpoints || []) {
+            const path = String(checkpoint.path || checkpoint.checkpoint_path || '');
+            if (!path) continue;
+            const option = view.element(
+                'option',
+                undefined,
+                `${checkpoint.run_id || 'external'} · ${checkpoint.stage || checkpoint.kind || 'checkpoint'} · ${path}`,
+            );
+            option.value = path;
+            checkpointSelect.append(option);
+        }
+        checkpointOutput.textContent = `${checkpointSelect.options.length} checkpoint(s) found`;
+    };
+
+    const predictLabel = view.element('label', 'ra-check');
+    predictLabel.append(checkpointPredict, document.createTextNode(' Export predictions as artifacts'));
+    const checkpointActions = view.element('div', 'ra-actions');
+    checkpointActions.append(
+        view.button('Load catalog', loadCheckpoints),
+        view.button('Inspect', () => runAction(
+            () => view.post('/api/checkpoints/inspect', inferenceBody()),
+            checkpointOutput,
+        )),
+        view.button('Run inference', () => runAction(
+            () => view.post('/api/checkpoints/infer', inferenceBody()),
+            checkpointOutput,
+        ), 'primary'),
+    );
+    const checkpoints = view.card(
+        'Checkpoint inference',
+        checkpointRoot,
+        checkpointSelect,
+        checkpointConfig,
+        checkpointSplits,
+        checkpointDevice,
+        predictLabel,
+        checkpointOverrides,
+        checkpointActions,
+        checkpointOutput,
+    );
+
+    view.content.replaceChildren(
+        view.element('div', 'ra-execution-grid', undefined, [existing, form, checkpoints]),
+    );
     await load();
 }
