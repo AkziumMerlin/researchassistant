@@ -71,7 +71,7 @@ jobs:
           echo 'bcdb2d7b1b496b88e06c8a7460b7ef54c2f4b52e23acd46bbbf35dc00fffff10  /tmp/parity-update.tar.gz' | sha256sum --check
           tar --extract --gzip --file /tmp/parity-update.tar.gz
           rm -rf .ra-transport-parity
-          rm -f .github/workflows/ui-parity-snapshot.yml
+          git checkout HEAD -- .github/workflows/ci.yml .github/workflows/ui-parity-snapshot.yml
       - name: Validate Python implementation
         if: steps.transport.outputs.present == 'true'
         run: |
