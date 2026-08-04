@@ -48,6 +48,30 @@ ra version
 The local and remote `ra version` values should match. `ra connect` prints a warning when they do
 not.
 
+## Updating
+
+Update the remote checkout without installing Node.js or rebuilding the UI:
+
+```bash
+ssh gpu-server
+conda activate KNO
+ra update server --repo /path/to/researchassistant
+```
+
+`ra update server` only performs a clean, fast-forward-only Git update. It never invokes `pip`,
+`npm`, Theia, Electron or package generation. When a release changes Python dependencies, update
+the server environment explicitly after reviewing the release notes.
+
+Update the local machine separately:
+
+```bash
+conda activate researchassistant
+ra update local --repo /path/to/researchassistant
+```
+
+The local command also reinstalls the Python package and rebuilds/packages the Theia UI. Use
+`--dry-run` with either command to inspect its plan.
+
 ## One-off connection
 
 ```bash

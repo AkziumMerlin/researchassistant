@@ -28,6 +28,19 @@ export async function renderRuns(view: ResearchAssistantWidget): Promise<void> {
 
     const list = view.element('div', 'ra-virtual-list ra-run-list');
     const output = view.output('Select runs from any studies and aggregate them explicitly.');
+
+    const overview = view.output('Load the indexed run, metric and resource overview.');
+    const overviewStage = view.input('Overview stage (optional)');
+    const overviewMetric = view.input('Overview metric (optional)');
+    const loadOverview = view.button('Load run overview', async () => {
+        overview.textContent = view.pretty(await view.post('/api/runs/catalog', {
+            artifact_root: 'runs',
+            stage: overviewStage.value.trim() || null,
+            metric: overviewMetric.value.trim() || null,
+            trial_ids: [],
+            limit: 5000,
+        }));
+    });
     const render = (): void => {
         const needle = query.value.trim().toLowerCase();
         const fragment = document.createDocumentFragment();
@@ -98,7 +111,10 @@ export async function renderRuns(view: ResearchAssistantWidget): Promise<void> {
         toolbar,
         view.splitPane(
             view.card('Runs', list),
-            view.card('Cross-run aggregation', metric, groupBy, aggregate, output),
+            view.element('div', 'ra-tool-stack', undefined, [
+                view.card('Cross-run aggregation', metric, groupBy, aggregate, output),
+                view.card('Run and resource overview', overviewStage, overviewMetric, loadOverview, overview),
+            ]),
         ),
     );
 }

@@ -11,11 +11,15 @@ import {
 import { renderArtifacts } from './tabs/artifacts-tab';
 import { renderAssistant } from './tabs/assistant-tab';
 import { renderExecution } from './tabs/execution-tab';
+import { renderJobs } from './tabs/jobs-tab';
 import { renderModels } from './tabs/models-tab';
+import { renderPipeline } from './tabs/pipeline-tab';
+import { renderProject } from './tabs/project-tab';
 import { renderMonitor } from './tabs/monitor-tab';
 import { renderNotebooks } from './tabs/notebooks-tab';
 import { renderReports } from './tabs/reports-tab';
 import { renderResearch } from './tabs/research-tab';
+import { renderWorkbench } from './tabs/workbench-tab';
 import { renderRuns } from './tabs/runs-tab';
 
 export const ResearchAssistantWidgetId = 'research-assistant.workspace';
@@ -23,10 +27,14 @@ export const ResearchAssistantWidgetId = 'research-assistant.workspace';
 type TabId =
     | 'runs'
     | 'artifacts'
+    | 'project'
+    | 'jobs'
     | 'models'
     | 'reports'
     | 'notebooks'
     | 'execution'
+    | 'pipeline'
+    | 'workbench'
     | 'monitor'
     | 'research'
     | 'assistant';
@@ -51,6 +59,7 @@ export class ResearchAssistantWidget extends BaseWidget {
     protected tabHost: HTMLElement;
     public content: HTMLElement;
     protected status: HTMLElement;
+    protected tabCleanup: (() => void | Promise<void>) | undefined;
 
     @postConstruct()
     protected init(): void {
@@ -76,10 +85,14 @@ export class ResearchAssistantWidget extends BaseWidget {
         const tabs: Array<[TabId, string, string]> = [
             ['runs', 'Runs', 'run-all'],
             ['artifacts', 'Artifacts', 'database'],
+            ['project', 'Project', 'settings-gear'],
+            ['jobs', 'Jobs', 'server-process'],
             ['models', 'Models', 'type-hierarchy-sub'],
             ['reports', 'Reports', 'graph'],
             ['notebooks', 'Notebooks', 'notebook'],
-            ['execution', 'Execution', 'server-process'],
+            ['execution', 'Execution', 'play-circle'],
+            ['pipeline', 'Pipeline', 'type-hierarchy'],
+            ['workbench', 'Workbench', 'tools'],
             ['monitor', 'Monitor', 'pulse'],
             ['research', 'Research', 'beaker'],
             ['assistant', 'Assistant', 'sparkle'],
@@ -102,6 +115,10 @@ export class ResearchAssistantWidget extends BaseWidget {
         if (!force && tab === this.activeTab && this.content.dataset.loaded === tab) {
             return;
         }
+        if (this.tabCleanup) {
+            await this.tabCleanup();
+            this.tabCleanup = undefined;
+        }
         this.activeTab = tab;
         for (const button of Array.from(this.tabHost.querySelectorAll<HTMLButtonElement>('[data-tab]'))) {
             button.classList.toggle('active', button.dataset.tab === tab);
@@ -112,10 +129,14 @@ export class ResearchAssistantWidget extends BaseWidget {
             await {
                 runs: () => renderRuns(this),
                 artifacts: () => renderArtifacts(this),
+                project: () => renderProject(this),
+                jobs: () => renderJobs(this),
                 models: () => renderModels(this),
                 reports: () => renderReports(this),
                 notebooks: () => renderNotebooks(this),
                 execution: () => renderExecution(this),
+                pipeline: () => renderPipeline(this),
+                workbench: () => renderWorkbench(this),
                 monitor: () => renderMonitor(this),
                 research: () => renderResearch(this),
                 assistant: () => renderAssistant(this),
@@ -138,6 +159,10 @@ export class ResearchAssistantWidget extends BaseWidget {
             this.status.classList.add('error');
             this.renderError(error);
         }
+    }
+
+    public setTabCleanup(cleanup: () => void | Promise<void>): void {
+        this.tabCleanup = cleanup;
     }
 
     public async get<T = unknown>(path: string): Promise<T> {
@@ -208,7 +233,7 @@ export class ResearchAssistantWidget extends BaseWidget {
 
     public button(
         text: string,
-        action: () => void | Promise<void>,
+        action: () => unknown | Promise<unknown>,
         className = '',
     ): HTMLButtonElement {
         const button = this.element('button', `theia-button ra-button ${className}`.trim(), text);

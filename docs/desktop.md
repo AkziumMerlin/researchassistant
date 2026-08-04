@@ -54,24 +54,46 @@ Theia replaces the previous browser-specific infrastructure:
 - Monaco and Theia editor widgets replace the custom editor wrapper.
 - Theia terminal and process services replace the browser terminal dialog.
 - ResearchAssistant workflows live in an ordinary dockable view rather than modal dialogs.
-- Runs can be selected explicitly across different studies and aggregated with full contributing
-  run and seed provenance.
-- Artifacts expose discovery, lineage and bounded comparison.
+- Runs can be selected explicitly across different studies, aggregated with full contributing run
+  and seed provenance, and inspected through indexed metric/resource summaries.
+- Project restores project initialization, schema-driven configuration creation, matrix axes,
+  stage-local component overrides and compiled-plan inspection.
+- Jobs restores persistent job creation, recovery/adoption, logs, raw metric streams, saved live
+  multi-run dashboards and per-run artifacts.
+- Artifacts exposes discovery, explicit registration, lineage, bounded slicing/comparison, pinning,
+  archival, trash/restore and garbage collection.
 - Models provides a native visual parameterized-PyTorch editor with architecture files, registered
   components, subgraphs, control nodes, a draggable canvas, visual edges, JSON inspectors,
   optimistic saves and server-side validation.
-- Reports provides chart, table and validation-selected evaluation specifications plus reproducible
-  export bundles.
-- Notebooks creates immutable run/artifact contexts, opens `.ipynb` files in the workspace, and
-  controls persistent kernels and cell execution.
+- Reports provides chart, advanced scatter/histogram/heatmap/composite plots, tables,
+  validation-selected evaluations, saved YAML specs and reproducible export bundles.
+- Notebooks creates immutable run/artifact contexts and includes a native cell editor with
+  create/open/save, cell ordering, persistent kernels, execution events and stored Jupyter outputs.
 - Execution previews and creates durable launches, reconciles scheduler state, adopts or retries
   orphaned work, cancels processes, catalogs checkpoints and launches inference-only runs.
+- Pipeline exposes persistent-job recovery, stage-cache pruning, asset promotion/release/pinning,
+  diagnostics and reproducible publication bundles.
+- Workbench restores workspace/environment catalogs, detached analysis sessions, project tasks,
+  search and trusted Git diagnostics/write operations.
 - The assistant produces typed, capability-bounded plans and applies them through the existing
   Python provider API.
 
 All lists and editors that can grow independently use bounded internal scroll areas. In particular,
 the Models component palette, architecture-file list, graph canvas and inspector do not expand the
 outer Theia workbench.
+
+## Updating the local desktop
+
+```bash
+conda activate researchassistant
+ra update local --repo /path/to/researchassistant
+```
+
+The command accepts only a clean Git checkout, fast-forwards the current branch from `origin`,
+reinstalls the current Python environment, runs `npm ci` when a lockfile exists (otherwise `npm install`), rebuilds Theia and repackages Electron.
+`--no-package` keeps only the development build; `--dry-run` prints the exact commands. Server
+checkouts use the intentionally narrower `ra update server` command documented in
+[remote.md](remote.md).
 
 ## Packaging
 
