@@ -10,6 +10,7 @@ from research_assistant.integrations.parameterized_torch_graph import (
 )
 from research_assistant.integrations.torch import register as register_torch
 from research_assistant.launching import register as register_launcher
+from research_assistant.legacy import register_legacy_stage
 from research_assistant.registry import Registry
 
 
@@ -53,6 +54,7 @@ def register(registry: Registry) -> None:
         description="Return a configured value; useful in examples and plugin tests.",
         provider="research-assistant",
     )
+    register_legacy_stage(registry)
     register_torch(registry)
     register_parameterized_torch_graph(registry)
     register_launcher(registry)
