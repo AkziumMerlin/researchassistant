@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 from collections.abc import Callable
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -70,7 +71,9 @@ def load_registry(
         diagnostics.append(diagnostic.as_dict())
         _register_callable(register, registry, provider)
 
-    root = Path(project_root or Path.cwd()).expanduser().resolve()
+    root = Path(
+        project_root or os.environ.get("RA_PROJECT_ROOT") or Path.cwd()
+    ).expanduser().resolve()
     for module_name in modules or []:
         file_path = _file_plugin_path(module_name)
         if file_path is not None:
@@ -90,7 +93,7 @@ def load_registry(
         diagnostics.append(diagnostic.as_dict())
         _register_callable(register, registry, module_name)
 
-    catalog_root = register_project_catalog(registry, project_root)
+    catalog_root = register_project_catalog(registry, root)
     if catalog_root is not None:
         diagnostics.append(
             {
