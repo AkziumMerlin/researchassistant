@@ -29,8 +29,7 @@
           "workbench.iconTheme": "theia-file-icons",
           "workbench.activityBar.visible": true,
           "workbench.statusBar.visible": true,
-          "window.menuBarVisibility": "classic",
-          "terminal.integrated.defaultProfile.linux": "bash"
+          "window.menuBarVisibility": "classic"
         }
       }
     },

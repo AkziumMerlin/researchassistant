@@ -1,0 +1,53 @@
+.ra-path-completion {
+    position: fixed;
+    z-index: 100000;
+    overflow: auto;
+    padding: 4px;
+    border: 1px solid var(--theia-dropdown-border, var(--theia-contrastBorder));
+    border-radius: 6px;
+    background: var(--theia-dropdown-background, var(--theia-editorWidget-background));
+    box-shadow: 0 10px 28px rgb(0 0 0 / 38%);
+    scrollbar-gutter: stable;
+}
+
+.ra-path-completion[hidden] {
+    display: none;
+}
+
+.ra-path-completion-item {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto;
+    align-items: center;
+    width: 100%;
+    min-height: 28px;
+    gap: 7px;
+    padding: 4px 7px;
+    border: 0;
+    border-radius: 4px;
+    color: var(--theia-dropdown-foreground, var(--theia-foreground));
+    background: transparent;
+    font: inherit;
+    text-align: left;
+    cursor: default;
+}
+
+.ra-path-completion-item.selected {
+    color: var(--theia-list-activeSelectionForeground, var(--theia-foreground));
+    background: var(--theia-list-activeSelectionBackground, var(--theia-list-hoverBackground));
+}
+
+.ra-path-completion-item .codicon {
+    opacity: 0.85;
+}
+
+.ra-path-completion-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ra-path-completion-kind {
+    color: var(--theia-descriptionForeground);
+    font-size: 0.82em;
+    opacity: 0.82;
+}
