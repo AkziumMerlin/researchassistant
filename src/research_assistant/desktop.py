@@ -32,6 +32,55 @@ def _candidate_executables(package_root: Path) -> list[Path]:
     return candidates
 
 
+def normalize_theia_workspace_file(workspace: str | Path) -> Path:
+    """Normalize ResearchAssistant virtual roots for Theia's workspace schema.
+
+    Theia 1.73 reads ``folders[].path`` even when the value is a non-file URI.
+    Older VS Code-style ``folders[].uri`` entries are therefore silently ignored,
+    leaving the Navigator without a root. Only ``ra-remote`` entries are changed.
+    """
+    workspace_path = Path(workspace).expanduser().resolve()
+    if not workspace_path.is_file() or workspace_path.suffix != ".theia-workspace":
+        return workspace_path
+    try:
+        document = json.loads(workspace_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return workspace_path
+    if not isinstance(document, dict):
+        return workspace_path
+    folders = document.get("folders")
+    if not isinstance(folders, list):
+        return workspace_path
+
+    changed = False
+    for folder in folders:
+        if not isinstance(folder, dict) or "path" in folder:
+            continue
+        uri = folder.get("uri")
+        if isinstance(uri, str) and uri.startswith("ra-remote://"):
+            folder["path"] = uri
+            folder.pop("uri", None)
+            changed = True
+    if not changed:
+        return workspace_path
+
+    temporary = workspace_path.with_name(
+        f".{workspace_path.name}.{os.getpid()}.tmp"
+    )
+    try:
+        temporary.write_text(
+            json.dumps(document, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        os.replace(temporary, workspace_path)
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        raise ResearchAssistantError(
+            f"cannot normalize remote Theia workspace {workspace_path}: {exc}"
+        ) from exc
+    return workspace_path
+
+
 def resolve_desktop_command(
     workspace: str | Path,
     *,
@@ -106,7 +155,7 @@ def launch_desktop(
     development: bool = False,
     extra_environment: Mapping[str, str] | None = None,
 ) -> int:
-    root = Path(workspace).expanduser().resolve()
+    root = normalize_theia_workspace_file(workspace)
     if not root.exists():
         raise ResearchAssistantError(f"workspace does not exist: {root}")
     if not root.is_dir() and root.suffix != ".theia-workspace":
