@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.legacy import (
     ProjectRegistrationCatalog,
+    RegistrationCatalogDocument,
     discover_python_symbols,
     suggest_legacy_entrypoint,
 )
@@ -47,6 +48,21 @@ def _project_file(root: Path, value: str) -> Path:
     return path
 
 
+def _restore_catalog(
+    catalog: ProjectRegistrationCatalog,
+    previous: RegistrationCatalogDocument,
+    existed: bool,
+) -> None:
+    if existed:
+        catalog.save(previous)
+        return
+    catalog.path.unlink(missing_ok=True)
+    try:
+        catalog.path.parent.rmdir()
+    except OSError:
+        pass
+
+
 def register_legacy_routes(app) -> None:
     try:
         from fastapi import Query
@@ -74,24 +90,30 @@ def register_legacy_routes(app) -> None:
     @app.post("/api/legacy/python/register")
     def legacy_python_register(payload: PythonRegistrationRequest) -> dict[str, Any]:
         catalog = ProjectRegistrationCatalog(root)
-        registration = catalog.add_python(
-            kind=payload.kind,
-            name=payload.name,
-            path=payload.path,
-            symbol=payload.symbol,
-            description=payload.description,
-            catalog=payload.catalog,
-            editor=payload.editor,
-            replace=payload.replace,
-        )
-        registry = load_registry(list(app.state.plugins), project_root=root)
-        spec = registry.get(payload.kind, payload.name)
-        app.state.registry = registry
+        existed = catalog.path.is_file()
+        previous = catalog.load()
+        try:
+            registration = catalog.add_python(
+                kind=payload.kind,
+                name=payload.name,
+                path=payload.path,
+                symbol=payload.symbol,
+                description=payload.description,
+                catalog=payload.catalog,
+                editor=payload.editor,
+                replace=payload.replace,
+            )
+            validated = load_registry(list(app.state.plugins), project_root=root)
+            spec = validated.get(payload.kind, payload.name)
+        except Exception:
+            _restore_catalog(catalog, previous, existed)
+            raise
+        app.state.registry.replace_with(validated)
         return {
             "registration": registration.model_dump(mode="json"),
             "provider": spec.provider,
             "schema": spec.schema.model_json_schema(),
-            "restart_required": True,
+            "restart_required": False,
         }
 
     @app.post("/api/legacy/config/register")
