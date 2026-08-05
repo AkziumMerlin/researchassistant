@@ -79,12 +79,30 @@ def test_remote_workspace_uses_native_theia_filesystem_provider() -> None:
     assert "/api/desktop/files/write" in provider
     assert "FileServiceContribution" in frontend
     assert "extends WorkspaceService" in workspace
-    assert "computeRemoteRoots" in workspace
+    assert "override async getWorkspaceDataFromFile" in workspace
+    assert "override async writeWorkspaceFile" in workspace
+    assert "transformFolderToPortablePath" in workspace
+    assert "isExternalWorkspaceUri" in workspace
     assert "new URI(folder.path)" in workspace
     assert "rebind(WorkspaceService).toService(ResearchAssistantWorkspaceService)" in frontend
     assert "RA_REMOTE_ENDPOINT" in backend
     assert "RA_REMOTE_TOKEN" in backend
     assert "reconnecting" in backend
+
+
+def test_remote_workspace_preserves_mixed_local_and_remote_roots() -> None:
+    workspace = (EXTENSION / "remote-workspace-service.ts").read_text(encoding="utf-8")
+    package = json.loads(
+        (DESKTOP / "research-assistant-extension" / "package.json").read_text(encoding="utf-8")
+    )
+
+    assert package["dependencies"]["jsonc-parser"] == "^3.3.1"
+    assert "jsoncparser.parse" in workspace
+    assert "resource.scheme === REMOTE_SCHEME" in workspace
+    assert "previousNames" in workspace
+    assert "WorkspaceData.transformToRelative(" not in workspace
+    assert "WorkspaceData.transformToAbsolute(" not in workspace
+    assert "return new URI(path).normalizePath().toString()" in workspace
 
 
 def test_theia_restores_browser_workflow_parity_as_native_tabs() -> None:
