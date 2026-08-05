@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -158,6 +157,9 @@ def test_current_config_is_not_registered_as_legacy(tmp_path: Path) -> None:
             entrypoint="examples/train_from_yaml.py",
             output="configs/registered/current.yaml",
         )
+
+    assert not (tmp_path / ".research-assistant/registrations.yaml").exists()
+    assert not (tmp_path / "configs/registered/current.yaml").exists()
 
 
 def test_legacy_runner_uses_argument_vector_and_resume_mode(
