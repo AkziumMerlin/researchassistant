@@ -29,6 +29,15 @@ def _wait_for_output(
     raise AssertionError(f"terminal output did not contain {needle!r}: {output!r}")
 
 
+def _wait_for_path(path: Path, timeout: float = 5.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if path.exists():
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"terminal command did not create {path}")
+
+
 def test_terminal_session_accepts_input_and_resizes(tmp_path: Path) -> None:
     manager = TerminalSessionManager(tmp_path)
     session = manager.create(shell="/bin/sh", cols=80, rows=24)
@@ -72,6 +81,7 @@ def test_tmux_terminal_survives_manager_restart(tmp_path: Path) -> None:
 
     nested = tmp_path / "nested"
     nested.mkdir()
+    ready = tmp_path / "shell-state-ready"
     first = TmuxTerminalSessionManager(tmp_path, tmux_executable=tmux)
     session = first.create(shell="/bin/sh", cols=90, rows=26)
     session_id = session["session_id"]
@@ -80,8 +90,12 @@ def test_tmux_terminal_survives_manager_restart(tmp_path: Path) -> None:
     try:
         first.write(
             session_id,
-            b"export RA_PERSISTED=alive; cd nested; printf 'before-restart\\n'\n",
+            (
+                b"export RA_PERSISTED=alive; cd nested; "
+                b": > ../shell-state-ready; printf 'before-restart\\n'\n"
+            ),
         )
+        _wait_for_path(ready)
         _wait_for_output(first, session_id, b"before-restart")
         first.shutdown()
 
