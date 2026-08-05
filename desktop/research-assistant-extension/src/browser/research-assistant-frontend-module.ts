@@ -20,6 +20,7 @@ import {
 
 import './style/execution.css';
 import './style/research-assistant.css';
+import './style/sci-fi-theme.css';
 
 export default new ContainerModule(bind => {
     bind(ResearchAssistantService).toDynamicValue(context =>
