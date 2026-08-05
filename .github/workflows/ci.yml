@@ -72,6 +72,8 @@ jobs:
           sudo apt-get install -y build-essential libx11-dev libxkbfile-dev
       - run: npm install --prefix desktop
       - run: npm run build --prefix desktop
+      - name: Package unpacked Electron application
+        run: npm run package:dir --prefix desktop
       - name: Verify desktop architecture
         run: |
           test ! -d ui
@@ -86,6 +88,8 @@ jobs:
           test -f desktop/research-assistant-extension/lib/browser/tabs/workbench-tab.js
           test -f desktop/research-assistant-extension/lib/node/research-assistant-backend-service.js
           test -f desktop/research-assistant-extension/lib/browser/style/research-assistant.css
+          test -x desktop/application/dist/linux-unpacked/research-assistant
+          test -f desktop/application/dist/linux-unpacked/resources/app.asar
           grep -q "overflow-y: scroll" desktop/research-assistant-extension/lib/browser/style/research-assistant.css
           grep -R "research-assistant/desktop-sidecar" desktop/research-assistant-extension/lib/node
           grep -R "RA_REMOTE_ENDPOINT" desktop/research-assistant-extension/lib/node
