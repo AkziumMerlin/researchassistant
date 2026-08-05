@@ -10,6 +10,7 @@ import yaml
 from research_assistant.errors import ResearchAssistantError
 from research_assistant.legacy import (
     ProjectRegistrationCatalog,
+    RegistrationCatalogDocument,
     discover_python_symbols,
     find_project_root,
     suggest_legacy_entrypoint,
@@ -43,6 +44,21 @@ def _echo(value: object, *, json_output: bool = False) -> None:
 def _abort(exc: Exception) -> None:
     typer.secho(f"error: {exc}", fg=typer.colors.RED, err=True)
     raise typer.Exit(code=2) from exc
+
+
+def _restore_catalog(
+    catalog: ProjectRegistrationCatalog,
+    previous: RegistrationCatalogDocument,
+    existed: bool,
+) -> None:
+    if existed:
+        catalog.save(previous)
+        return
+    catalog.path.unlink(missing_ok=True)
+    try:
+        catalog.path.parent.rmdir()
+    except OSError:
+        pass
 
 
 @legacy_app.command("list")
@@ -94,18 +110,24 @@ def register_python(
         root = _root(project)
         registered_name = name or f"local/{symbol.lower().replace('_', '-')}"
         catalog = ProjectRegistrationCatalog(root)
-        registration = catalog.add_python(
-            kind=kind,
-            name=registered_name,
-            path=path,
-            symbol=symbol,
-            description=description,
-            catalog=catalog_name,
-            editor=editor,
-            replace=replace,
-        )
-        registry = load_registry([], project_root=root)
-        spec = registry.get(kind, registered_name)
+        existed = catalog.path.is_file()
+        previous = catalog.load()
+        try:
+            registration = catalog.add_python(
+                kind=kind,
+                name=registered_name,
+                path=path,
+                symbol=symbol,
+                description=description,
+                catalog=catalog_name,
+                editor=editor,
+                replace=replace,
+            )
+            registry = load_registry([], project_root=root)
+            spec = registry.get(kind, registered_name)
+        except Exception:
+            _restore_catalog(catalog, previous, existed)
+            raise
         payload = {
             "registration": registration.model_dump(mode="json"),
             "provider": spec.provider,
