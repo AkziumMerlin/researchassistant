@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import importlib
+import os
 from collections.abc import Callable
 from importlib.metadata import entry_points
+from pathlib import Path
 
 from research_assistant.builtin import register as register_builtin
 from research_assistant.errors import RegistryError
-from research_assistant.plugin_sdk import inspect_provider, require_compatible
+from research_assistant.legacy import register_file_plugin, register_project_catalog
+from research_assistant.plugin_sdk import (
+    contract_from_module,
+    inspect_provider,
+    require_compatible,
+)
 from research_assistant.registry import Registry
 
 PLUGIN_GROUP = "research_assistant.plugins"
@@ -24,7 +31,19 @@ def _register_callable(register: object, registry: Registry, provider: str) -> N
         raise RegistryError(f"plugin {provider!r} failed to register: {exc}") from exc
 
 
-def load_registry(modules: list[str] | None = None) -> Registry:
+def _file_plugin_path(value: str) -> str | None:
+    if value.startswith("file:"):
+        return value.removeprefix("file:")
+    if value.endswith(".py") or "/" in value or "\\" in value:
+        return value
+    return None
+
+
+def load_registry(
+    modules: list[str] | None = None,
+    *,
+    project_root: str | Path | None = None,
+) -> Registry:
     registry = Registry()
     register_builtin(registry)
     diagnostics: list[dict[str, object]] = [
@@ -52,7 +71,18 @@ def load_registry(modules: list[str] | None = None) -> Registry:
         diagnostics.append(diagnostic.as_dict())
         _register_callable(register, registry, provider)
 
+    root = Path(
+        project_root or os.environ.get("RA_PROJECT_ROOT") or Path.cwd()
+    ).expanduser().resolve()
     for module_name in modules or []:
+        file_path = _file_plugin_path(module_name)
+        if file_path is not None:
+            provider = f"file:{file_path}"
+            module = register_file_plugin(registry, file_path, project_root=root)
+            diagnostic = contract_from_module(module, provider)
+            require_compatible(diagnostic)
+            diagnostics.append(diagnostic.as_dict())
+            continue
         try:
             module = importlib.import_module(module_name)
         except Exception as exc:
@@ -62,6 +92,17 @@ def load_registry(modules: list[str] | None = None) -> Registry:
         require_compatible(diagnostic)
         diagnostics.append(diagnostic.as_dict())
         _register_callable(register, registry, module_name)
+
+    catalog_root = register_project_catalog(registry, root)
+    if catalog_root is not None:
+        diagnostics.append(
+            {
+                "provider": str(catalog_root / ".research-assistant" / "registrations.yaml"),
+                "state": "compatible",
+                "contract": None,
+                "message": "project-local Python component registrations loaded",
+            }
+        )
 
     registry.plugin_diagnostics = diagnostics
     return registry

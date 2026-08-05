@@ -30,6 +30,7 @@ class ComponentSpec:
 class Registry:
     def __init__(self) -> None:
         self._components: dict[tuple[str, str], ComponentSpec] = {}
+        self.plugin_diagnostics: list[dict[str, object]] = []
 
     def add(
         self,
@@ -67,6 +68,13 @@ class Registry:
             metadata=dict(metadata or {}),
             validator=validator,
         )
+
+    def replace_with(self, other: Registry) -> None:
+        """Atomically replace the live catalog after a complete registry validates."""
+        if not isinstance(other, Registry):
+            raise TypeError("other must be a Registry")
+        self._components = dict(other._components)
+        self.plugin_diagnostics = [dict(row) for row in other.plugin_diagnostics]
 
     def get(self, kind: str, name: str) -> ComponentSpec:
         try:

@@ -12,6 +12,7 @@ import { renderArtifacts } from './tabs/artifacts-tab';
 import { renderAssistant } from './tabs/assistant-tab';
 import { renderExecution } from './tabs/execution-tab';
 import { renderJobs } from './tabs/jobs-tab';
+import { renderLegacy } from './tabs/legacy-tab';
 import { renderModels } from './tabs/models-tab';
 import { renderPipeline } from './tabs/pipeline-tab';
 import { renderProject } from './tabs/project-tab';
@@ -28,6 +29,7 @@ type TabId =
     | 'runs'
     | 'artifacts'
     | 'project'
+    | 'legacy'
     | 'jobs'
     | 'models'
     | 'reports'
@@ -86,6 +88,7 @@ export class ResearchAssistantWidget extends BaseWidget {
             ['runs', 'Runs', 'run-all'],
             ['artifacts', 'Artifacts', 'database'],
             ['project', 'Project', 'settings-gear'],
+            ['legacy', 'Register', 'extensions'],
             ['jobs', 'Jobs', 'server-process'],
             ['models', 'Models', 'type-hierarchy-sub'],
             ['reports', 'Reports', 'graph'],
@@ -130,6 +133,7 @@ export class ResearchAssistantWidget extends BaseWidget {
                 runs: () => renderRuns(this),
                 artifacts: () => renderArtifacts(this),
                 project: () => renderProject(this),
+                legacy: () => renderLegacy(this),
                 jobs: () => renderJobs(this),
                 models: () => renderModels(this),
                 reports: () => renderReports(this),
