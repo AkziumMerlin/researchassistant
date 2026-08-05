@@ -4,6 +4,7 @@ import ast
 import hashlib
 import importlib.util
 import inspect
+import itertools
 import os
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from research_assistant.models import COMPONENT_NAME_PATTERN
 from research_assistant.registry import Registry
 
 CATALOG_PATH = Path(".research-assistant/registrations.yaml")
+_LOAD_SEQUENCE = itertools.count()
 
 
 class PythonRegistration(BaseModel):
@@ -274,6 +276,10 @@ class ProjectRegistrationCatalog:
             raise ConfigError(f"legacy entrypoint must be a Python file: {runner}")
         if not workdir.is_dir():
             raise ConfigError(f"legacy working directory is not a directory: {workdir}")
+        if destination == source:
+            raise ConfigError("legacy wrapper output must not overwrite the source config")
+        if destination.suffix.lower() not in {".yaml", ".yml"}:
+            raise ConfigError("legacy wrapper output must use a .yaml or .yml extension")
         old = _yaml_mapping(source)
         item = LegacyConfigRegistration(
             name=name or _experiment_name(old, source.stem),
@@ -294,7 +300,10 @@ class ProjectRegistrationCatalog:
         document.legacy_configs.append(item)
         document.legacy_configs.sort(key=lambda row: row.name)
 
-        previous = destination.read_text(encoding="utf-8") if destination.is_file() else None
+        try:
+            previous = destination.read_text(encoding="utf-8") if destination.is_file() else None
+        except OSError as exc:
+            raise ConfigError(f"cannot read existing wrapper {destination}: {exc}") from exc
         try:
             _atomic_write_text(destination, content)
             self.save(document)
@@ -396,9 +405,10 @@ def load_python_file(path: str | Path, *, project_root: str | Path) -> ModuleTyp
     source = _bounded(root, path, exists=True)
     if source.suffix != ".py" or not source.is_file():
         raise RegistryError(f"Python source is not a .py file: {source}")
-    package = "_research_assistant_project_" + hashlib.sha256(
-        str(root).encode()
-    ).hexdigest()[:16]
+    project_hash = hashlib.sha256(str(root).encode()).hexdigest()[:16]
+    load_id = next(_LOAD_SEQUENCE)
+    package_root = f"_research_assistant_project_{project_hash}_{load_id:x}"
+    package = package_root
     _namespace(package, root)
     package_path = root
     for part in source.relative_to(root).parent.parts:
@@ -410,9 +420,6 @@ def load_python_file(path: str | Path, *, project_root: str | Path) -> ModuleTyp
         if source.name == "__init__.py"
         else f"{package}.{_identifier(source.stem)}"
     )
-    cached = sys.modules.get(module_name)
-    if cached is not None and getattr(cached, "__file__", None) == str(source):
-        return cached
     spec = importlib.util.spec_from_file_location(
         module_name,
         source,
@@ -427,7 +434,9 @@ def load_python_file(path: str | Path, *, project_root: str | Path) -> ModuleTyp
     try:
         spec.loader.exec_module(module)
     except Exception as exc:
-        sys.modules.pop(module_name, None)
+        for loaded_name in list(sys.modules):
+            if loaded_name == package_root or loaded_name.startswith(f"{package_root}."):
+                sys.modules.pop(loaded_name, None)
         raise RegistryError(f"cannot import Python file {source}: {exc}") from exc
     finally:
         sys.path[:] = previous
