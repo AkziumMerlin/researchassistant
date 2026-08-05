@@ -1,8 +1,7 @@
 import { FrontendApplicationContribution } from '@theia/core/lib/browser';
+import { FrontendApplicationStateService } from '@theia/core/lib/browser/frontend-application-state';
 import { OS, PreferenceService } from '@theia/core/lib/common';
-import URI from '@theia/core/lib/common/uri';
 import { inject, injectable } from '@theia/core/shared/inversify';
-import { FileService } from '@theia/filesystem/lib/browser/file-service';
 import { TerminalService } from '@theia/terminal/lib/browser/base/terminal-service';
 import { ShellTerminalProfile } from '@theia/terminal/lib/browser/shell-terminal-profile';
 import {
@@ -24,8 +23,8 @@ export class ResearchAssistantRemoteTerminalContribution implements FrontendAppl
     @inject(PreferenceService)
     protected readonly preferences: PreferenceService;
 
-    @inject(FileService)
-    protected readonly fileService: FileService;
+    @inject(FrontendApplicationStateService)
+    protected readonly applicationState: FrontendApplicationStateService;
 
     @inject(TerminalService)
     protected readonly terminalService: TerminalService;
@@ -36,13 +35,29 @@ export class ResearchAssistantRemoteTerminalContribution implements FrontendAppl
     @inject(UserTerminalProfileStore)
     protected readonly userProfiles: TerminalProfileStore;
 
-    async onStart(): Promise<void> {
-        await this.preferences.ready;
+    onStart(): void {
+        // Theia awaits every contribution's onStart result before attaching and
+        // revealing the workbench shell. Never return the preference/filesystem
+        // setup promise here: an unresolved provider would leave the preload
+        // spinner visible forever.
+        void this.registerAfterFrontendReady();
+    }
+
+    protected async registerAfterFrontendReady(): Promise<void> {
+        try {
+            await this.applicationState.reachedState('ready');
+            this.registerConfiguredProfile();
+        } catch (error) {
+            console.error('Could not register the ResearchAssistant SSH terminal profile', error);
+        }
+    }
+
+    protected registerConfiguredProfile(): void {
         const profile = this.configuredProfile();
         if (!profile) return;
-        const shellPath = await this.resolvePath(profile.path);
+        const shellPath = this.resolvePath(profile.path);
         if (!shellPath) {
-            console.error('ResearchAssistant SSH terminal wrapper does not exist');
+            console.error('ResearchAssistant SSH terminal profile has no wrapper path');
             return;
         }
 
@@ -75,13 +90,8 @@ export class ResearchAssistantRemoteTerminalContribution implements FrontendAppl
         return profile || undefined;
     }
 
-    protected async resolvePath(value: string | string[] | undefined): Promise<string | undefined> {
+    protected resolvePath(value: string | string[] | undefined): string | undefined {
         const candidates = typeof value === 'string' ? [value] : value ?? [];
-        for (const candidate of candidates) {
-            const path = candidate.trim();
-            if (!path) continue;
-            if (await this.fileService.exists(URI.fromFilePath(path))) return path;
-        }
-        return undefined;
+        return candidates.map(candidate => candidate.trim()).find(Boolean);
     }
 }
