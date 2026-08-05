@@ -13,8 +13,8 @@ from research_assistant.remote_connect import (
     RemoteConnectionError,
     RemoteConnectSpec,
     RemoteProfileCatalog,
-    connect_remote,
 )
+from research_assistant.remote_workspace_persistence import connect_remote
 
 _INSTALLED = False
 remote_app = typer.Typer(help="Manage reusable SSH workspace profiles.")
