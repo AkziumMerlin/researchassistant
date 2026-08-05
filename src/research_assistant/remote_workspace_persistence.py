@@ -12,6 +12,8 @@ from research_assistant.remote_connect import (
     RemoteDesktopTunnel,
     _cache_root,
     _workspace_id,
+)
+from research_assistant.remote_connect import (
     prepare_remote_desktop as prepare_generated_remote_desktop,
 )
 
