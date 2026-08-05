@@ -50,6 +50,36 @@ def test_changed_python_source_is_reloaded_in_same_process(tmp_path: Path) -> No
     assert type(first).__module__ != type(second).__module__
 
 
+def test_file_plugin_uses_environment_project_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project"
+    elsewhere = tmp_path / "elsewhere"
+    project.mkdir()
+    elsewhere.mkdir()
+    (project / "plugin.py").write_text(
+        "from pydantic import BaseModel, ConfigDict\n"
+        "class Params(BaseModel):\n"
+        "    model_config = ConfigDict(extra='forbid')\n"
+        "def build(params, context):\n"
+        "    return 'project-root'\n"
+        "def register(registry):\n"
+        "    registry.add('value', 'local/env-root', factory=build, schema=Params)\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RA_PROJECT_ROOT", str(project))
+    monkeypatch.chdir(elsewhere)
+
+    registry = load_registry(["plugin.py"])
+
+    assert registry.invoke(
+        "value",
+        ComponentRef(type="local/env-root", params={}),
+        None,
+    ) == "project-root"
+
+
 def test_legacy_wrapper_cannot_replace_source_or_use_non_yaml_output(tmp_path: Path) -> None:
     (tmp_path / "runner.py").write_text("print('runner')\n", encoding="utf-8")
     source = tmp_path / "old.yaml"
