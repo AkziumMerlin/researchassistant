@@ -2,6 +2,8 @@
   "name": "@research-assistant/desktop-application",
   "private": true,
   "version": "0.4.2",
+  "description": "ResearchAssistant desktop application",
+  "productName": "ResearchAssistant",
   "license": "MIT",
   "main": "lib/backend/electron-main.js",
   "theia": {
@@ -40,7 +42,8 @@
   "scripts": {
     "build": "theia build --mode production",
     "start": "theia start",
-    "package": "theia build --mode production && theia electron package",
+    "package:dir": "electron-builder --dir --publish never",
+    "package": "npm run build && npm run package:dir",
     "clean": "theia clean"
   },
   "dependencies": {
@@ -68,7 +71,8 @@
   },
   "devDependencies": {
     "@theia/cli": "1.73.1",
-    "electron": "39.8.7"
+    "electron": "39.8.7",
+    "electron-builder": "26.0.12"
   },
   "engines": {
     "node": ">=24"
