@@ -1,0 +1,388 @@
+.ra-theia-workspace {
+    --ra-bg: #050914;
+    --ra-bg-elevated: #081120;
+    --ra-panel: rgb(7 17 31 / 92%);
+    --ra-panel-strong: rgb(8 21 40 / 96%);
+    --ra-cyan: #29d9ff;
+    --ra-blue: #3887ff;
+    --ra-violet: #a870ff;
+    --ra-magenta: #ff58b5;
+    --ra-green: #79f39d;
+    --ra-text: #d9efff;
+    --ra-muted: #819bb6;
+    --ra-border: rgb(41 217 255 / 24%);
+    --ra-border-strong: rgb(41 217 255 / 55%);
+    --ra-shadow: 0 14px 34px rgb(0 0 0 / 38%);
+    --ra-glow: 0 0 18px rgb(41 217 255 / 18%);
+    --ra-radius: 12px;
+    position: relative;
+    isolation: isolate;
+    color: var(--ra-text);
+    background:
+        linear-gradient(rgb(41 217 255 / 2%) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(41 217 255 / 2%) 1px, transparent 1px),
+        radial-gradient(circle at 22% -12%, rgb(41 217 255 / 12%), transparent 34%),
+        radial-gradient(circle at 82% 8%, rgb(168 112 255 / 11%), transparent 30%),
+        linear-gradient(180deg, #050914 0%, #040812 100%);
+    background-size: 24px 24px, 24px 24px, auto, auto, auto;
+}
+
+.ra-theia-workspace::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background: linear-gradient(120deg, transparent 0 44%, rgb(41 217 255 / 3%) 50%, transparent 56%);
+}
+
+.ra-header {
+    min-height: 58px;
+    padding: 13px 17px;
+    border-bottom: 1px solid var(--ra-border);
+    background: linear-gradient(180deg, rgb(9 22 40 / 88%), rgb(5 12 24 / 74%));
+    box-shadow: 0 1px 0 rgb(255 255 255 / 2%), 0 10px 24px rgb(0 0 0 / 20%);
+}
+
+.ra-header h2 {
+    color: #e9f8ff;
+    font-size: 20px;
+    font-weight: 650;
+    letter-spacing: .01em;
+    text-shadow: 0 0 16px rgb(41 217 255 / 28%);
+}
+
+.ra-eyebrow {
+    color: var(--ra-muted);
+    font-size: 9px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+}
+
+.ra-sidecar-status {
+    padding: 5px 10px;
+    border: 1px solid rgb(41 217 255 / 14%);
+    border-radius: 999px;
+    color: #9fc4de;
+    background: rgb(5 13 26 / 70%);
+    box-shadow: inset 0 0 12px rgb(41 217 255 / 4%);
+}
+
+.ra-tabs {
+    gap: 6px;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--ra-border);
+    background: rgb(4 10 20 / 76%);
+    box-shadow: inset 0 -1px 0 rgb(255 255 255 / 2%);
+}
+
+.ra-button {
+    position: relative;
+    min-height: 30px;
+    padding: 6px 12px;
+    overflow: hidden;
+    border: 1px solid rgb(41 217 255 / 26%);
+    border-radius: 8px;
+    color: #cfeeff;
+    background:
+        linear-gradient(180deg, rgb(19 48 79 / 90%), rgb(8 25 46 / 94%));
+    box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 6%),
+        inset 0 0 16px rgb(41 217 255 / 4%),
+        0 5px 16px rgb(0 0 0 / 22%);
+    font-weight: 550;
+    letter-spacing: .01em;
+    transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, color .16s ease;
+}
+
+.ra-button::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(110deg, transparent 0 36%, rgb(255 255 255 / 9%) 50%, transparent 64%);
+    transform: translateX(-120%);
+    transition: transform .36s ease;
+}
+
+.ra-button:hover,
+.ra-button:focus-visible {
+    border-color: var(--ra-border-strong);
+    color: #f1fbff;
+    box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 9%),
+        inset 0 0 20px rgb(41 217 255 / 8%),
+        0 0 18px rgb(41 217 255 / 17%),
+        0 8px 20px rgb(0 0 0 / 25%);
+    transform: translateY(-1px);
+}
+
+.ra-button:hover::after,
+.ra-button:focus-visible::after {
+    transform: translateX(120%);
+}
+
+.ra-button:active {
+    transform: translateY(0);
+}
+
+.ra-tab {
+    min-height: 34px;
+    padding-inline: 13px;
+    border-color: rgb(41 217 255 / 18%);
+    color: #a9c7dc;
+    background: linear-gradient(180deg, rgb(10 26 48 / 90%), rgb(5 15 30 / 94%));
+}
+
+.ra-tab::before {
+    margin-right: 7px;
+    color: #58c9ff;
+    text-shadow: 0 0 10px rgb(41 217 255 / 55%);
+}
+
+.ra-tab.active,
+.ra-button.primary,
+.ra-subtab.active {
+    border-color: rgb(41 217 255 / 72%);
+    color: white;
+    background:
+        linear-gradient(180deg, rgb(23 111 180 / 96%), rgb(8 48 94 / 98%));
+    box-shadow:
+        inset 0 1px 0 rgb(255 255 255 / 14%),
+        inset 0 0 20px rgb(41 217 255 / 13%),
+        0 0 18px rgb(41 217 255 / 24%);
+}
+
+.ra-button.danger {
+    border-color: rgb(255 88 181 / 48%);
+    color: #ffd7ef;
+    background: linear-gradient(180deg, rgb(94 22 67 / 92%), rgb(45 10 35 / 96%));
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 6%), 0 0 14px rgb(255 88 181 / 12%);
+}
+
+.ra-button.danger:hover,
+.ra-button.danger:focus-visible {
+    border-color: rgb(255 88 181 / 85%);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 9%), 0 0 20px rgb(255 88 181 / 25%);
+}
+
+.ra-content {
+    padding: 13px;
+}
+
+.ra-toolbar {
+    gap: 8px;
+    margin-bottom: 11px;
+}
+
+.ra-toolbar .theia-input,
+.ra-toolbar .theia-select,
+.ra-card .theia-input,
+.ra-card textarea,
+.ra-spec-editor,
+.ra-model-json,
+.ra-checkpoint-select {
+    border: 1px solid rgb(41 217 255 / 18%);
+    border-radius: 8px;
+    color: var(--ra-text);
+    background: rgb(4 13 26 / 86%);
+    box-shadow: inset 0 0 14px rgb(41 217 255 / 3%);
+}
+
+.ra-toolbar .theia-input:focus,
+.ra-toolbar .theia-select:focus,
+.ra-card .theia-input:focus,
+.ra-card textarea:focus,
+.ra-spec-editor:focus,
+.ra-model-json:focus,
+.ra-checkpoint-select:focus {
+    border-color: var(--ra-border-strong);
+    box-shadow: 0 0 0 1px rgb(41 217 255 / 18%), 0 0 16px rgb(41 217 255 / 12%);
+}
+
+.ra-summary {
+    color: #6f91ac;
+}
+
+.ra-card,
+.ra-model-sidebar,
+.ra-model-center,
+.ra-model-inspector-pane {
+    position: relative;
+    border: 1px solid var(--ra-border);
+    border-radius: var(--ra-radius);
+    background:
+        linear-gradient(180deg, rgb(9 23 42 / 94%), rgb(5 14 27 / 96%));
+    box-shadow: var(--ra-shadow), inset 0 1px 0 rgb(255 255 255 / 3%);
+}
+
+.ra-card::before,
+.ra-model-sidebar::before,
+.ra-model-center::before,
+.ra-model-inspector-pane::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background:
+        linear-gradient(135deg, rgb(41 217 255 / 7%), transparent 16%),
+        linear-gradient(315deg, rgb(168 112 255 / 5%), transparent 18%);
+}
+
+.ra-card h3,
+.ra-model-sidebar h3,
+.ra-model-inspector-pane h3 {
+    position: relative;
+    z-index: 1;
+    color: #e7f7ff;
+    font-weight: 600;
+    text-shadow: 0 0 12px rgb(41 217 255 / 18%);
+}
+
+.ra-monitor-summary .ra-card:nth-child(1) {
+    border-color: rgb(41 217 255 / 38%);
+}
+
+.ra-monitor-summary .ra-card:nth-child(2) {
+    border-color: rgb(168 112 255 / 38%);
+}
+
+.ra-monitor-summary .ra-card:nth-child(3) {
+    border-color: rgb(255 88 181 / 28%);
+}
+
+.ra-monitor-gpus .ra-card {
+    border-color: rgb(121 243 157 / 34%);
+    background:
+        linear-gradient(90deg, rgb(5 27 22 / 96%), rgb(5 14 27 / 96%));
+    box-shadow: var(--ra-shadow), 0 0 18px rgb(121 243 157 / 8%);
+}
+
+.ra-row {
+    position: relative;
+    min-height: 48px;
+    padding: 9px 7px;
+    border-bottom: 1px solid rgb(41 217 255 / 13%);
+    transition: background .16s ease, box-shadow .16s ease;
+}
+
+.ra-row:hover {
+    background: linear-gradient(90deg, rgb(41 217 255 / 6%), transparent 72%);
+    box-shadow: inset 3px 0 0 rgb(41 217 255 / 48%);
+}
+
+.ra-identity strong {
+    color: #deefff;
+}
+
+.ra-identity small,
+.ra-path,
+.ra-monitor-usage,
+.ra-help,
+.ra-empty {
+    color: var(--ra-muted);
+}
+
+.ra-state {
+    border: 1px solid rgb(41 217 255 / 18%);
+    background: rgb(10 34 58 / 86%);
+    box-shadow: inset 0 0 10px rgb(41 217 255 / 5%);
+}
+
+.ra-output {
+    border: 1px solid rgb(41 217 255 / 18%);
+    border-radius: 9px;
+    background:
+        radial-gradient(circle at 50% 100%, rgb(41 217 255 / 5%), transparent 40%),
+        linear-gradient(180deg, rgb(4 13 26 / 92%), rgb(3 9 19 / 96%));
+    color: #b7d2e6;
+    box-shadow: inset 0 0 28px rgb(41 217 255 / 3%);
+}
+
+.ra-split {
+    gap: 12px;
+}
+
+.ra-subtabs {
+    gap: 6px;
+    border-bottom-color: var(--ra-border);
+}
+
+.ra-component,
+.ra-model-file,
+.ra-model-palette-item {
+    border-radius: 7px;
+}
+
+.ra-component:hover,
+.ra-component:focus-visible,
+.ra-model-file:hover,
+.ra-model-file:focus-visible,
+.ra-model-palette-item:hover,
+.ra-model-palette-item:focus-visible {
+    border-color: rgb(41 217 255 / 38%);
+    background: rgb(41 217 255 / 6%);
+    box-shadow: inset 0 0 16px rgb(41 217 255 / 4%);
+}
+
+.ra-model-canvas {
+    background-color: #050c18;
+    background-image:
+        linear-gradient(rgb(41 217 255 / 3%) 1px, transparent 1px),
+        linear-gradient(90deg, rgb(41 217 255 / 3%) 1px, transparent 1px),
+        radial-gradient(rgb(41 217 255 / 13%) 1px, transparent 1px);
+    background-size: 72px 72px, 72px 72px, 18px 18px;
+}
+
+.ra-model-edge {
+    stroke: var(--ra-cyan);
+    filter: drop-shadow(0 0 5px rgb(41 217 255 / 55%));
+}
+
+.ra-model-node {
+    border-color: rgb(41 217 255 / 30%);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgb(10 30 52 / 96%), rgb(5 16 30 / 98%));
+    box-shadow: 0 9px 22px rgb(0 0 0 / 32%), inset 0 1px 0 rgb(255 255 255 / 4%);
+}
+
+.ra-model-node.selected {
+    border-color: var(--ra-cyan);
+    box-shadow: 0 0 0 1px rgb(41 217 255 / 55%), 0 0 20px rgb(41 217 255 / 24%);
+}
+
+.ra-virtual-list,
+.ra-component-list,
+.ra-output,
+.ra-form-list,
+.ra-monitor-processes {
+    scrollbar-color: rgb(41 217 255 / 38%) rgb(2 8 16 / 62%);
+}
+
+.ra-virtual-list::-webkit-scrollbar,
+.ra-component-list::-webkit-scrollbar,
+.ra-output::-webkit-scrollbar,
+.ra-form-list::-webkit-scrollbar,
+.ra-monitor-processes::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.ra-virtual-list::-webkit-scrollbar-thumb,
+.ra-component-list::-webkit-scrollbar-thumb,
+.ra-output::-webkit-scrollbar-thumb,
+.ra-form-list::-webkit-scrollbar-thumb,
+.ra-monitor-processes::-webkit-scrollbar-thumb {
+    border: 2px solid transparent;
+    border-radius: 999px;
+    background: linear-gradient(var(--ra-cyan), var(--ra-blue)) padding-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .ra-button,
+    .ra-button::after,
+    .ra-row {
+        transition: none;
+    }
+}
