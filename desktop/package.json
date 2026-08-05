@@ -11,7 +11,8 @@
     "build:application": "npm run build --workspace @research-assistant/desktop-application",
     "build": "npm run build:extension && npm run build:application",
     "start": "npm run start --workspace @research-assistant/desktop-application --",
-    "package": "npm run package --workspace @research-assistant/desktop-application",
+    "package:dir": "npm run package:dir --workspace @research-assistant/desktop-application",
+    "package": "npm run build && npm run package:dir",
     "clean": "npm run clean --workspaces --if-present"
   },
   "engines": {
