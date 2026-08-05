@@ -432,7 +432,8 @@ def load_python_file(path: str | Path, *, project_root: str | Path) -> ModuleTyp
     previous = list(sys.path)
     sys.path[:0] = [str(root), str(source.parent)]
     try:
-        spec.loader.exec_module(module)
+        code = compile(source.read_bytes(), str(source), "exec", dont_inherit=True)
+        exec(code, module.__dict__)
     except Exception as exc:
         for loaded_name in list(sys.modules):
             if loaded_name == package_root or loaded_name.startswith(f"{package_root}."):
