@@ -14,3 +14,9 @@ desktop/node_modules/
 desktop/**/lib/
 desktop/**/electron-app/
 desktop/**/gen-webpack.config.js
+desktop/package-lock.json
+desktop/**/package-lock.json
+desktop/**/esbuild.mjs
+desktop/**/gen-esbuild.*.mjs
+desktop/**/src-gen/
+desktop/**/*.tsbuildinfo
