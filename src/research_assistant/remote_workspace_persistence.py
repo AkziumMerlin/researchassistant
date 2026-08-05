@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from research_assistant.artifacts import atomic_write_json
 from research_assistant.desktop import launch_desktop
@@ -17,7 +20,8 @@ from research_assistant.remote_connect import (
     prepare_remote_desktop as prepare_generated_remote_desktop,
 )
 
-_REMOTE_SCHEME = "ra-remote:"
+_REMOTE_SCHEME = "ra-remote"
+_CORRUPTED_REMOTE_PATH = re.compile(r"(?:^|[/\\])ra-remote:(?:[/\\]|$)")
 
 
 def _workspace_file(spec: RemoteConnectSpec) -> Path:
@@ -32,7 +36,7 @@ def _workspace_file(spec: RemoteConnectSpec) -> Path:
 
 
 def _read_workspace(path: Path) -> dict[str, Any]:
-    if not path.is_file():
+    if not path.exists():
         return {}
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -44,16 +48,49 @@ def _read_workspace(path: Path) -> dict[str, Any]:
 def _folder_resource(folder: dict[str, Any]) -> str | None:
     for key in ("path", "uri"):
         value = folder.get(key)
-        if isinstance(value, str):
-            return value
+        if isinstance(value, str) and value.strip():
+            return value.strip()
     return None
+
+
+def _normalized_folder(folder: dict[str, Any]) -> dict[str, Any] | None:
+    resource = _folder_resource(folder)
+    if resource is None:
+        return None
+    normalized = dict(folder)
+    normalized["path"] = resource
+    normalized.pop("uri", None)
+    name = normalized.get("name")
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        normalized.pop("name", None)
+    return normalized
 
 
 def _is_remote_folder(folder: dict[str, Any], remote_label: str) -> bool:
     resource = _folder_resource(folder)
-    if resource and _REMOTE_SCHEME in resource:
+    if resource is None:
+        return False
+    if urlsplit(resource).scheme.lower() == _REMOTE_SCHEME:
         return True
-    return folder.get("name") == remote_label
+    return (
+        folder.get("name") == remote_label
+        and _CORRUPTED_REMOTE_PATH.search(resource) is not None
+    )
+
+
+def _deduplicated_folders(folders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for folder in folders:
+        normalized = _normalized_folder(folder)
+        if normalized is None:
+            continue
+        key = str(normalized["path"])
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(normalized)
+    return result
 
 
 def _merge_settings(
@@ -79,25 +116,25 @@ def _merge_settings(
 
 
 def prepare_remote_desktop(spec: RemoteConnectSpec) -> PreparedRemoteDesktop:
-    """Generate an SSH workspace without discarding user-added local roots."""
+    """Generate an SSH workspace without discarding valid user-added local roots."""
     existing_path = _workspace_file(spec)
     existing = _read_workspace(existing_path)
     remote_label = f"{spec.target}:{spec.workspace}"
 
-    preserved_folders: list[dict[str, Any]] = []
+    preserved: list[dict[str, Any]] = []
     folders = existing.get("folders")
     if isinstance(folders, list):
         for value in folders:
-            if not isinstance(value, dict):
+            if not isinstance(value, dict) or _is_remote_folder(value, remote_label):
                 continue
-            folder = dict(value)
-            if not _is_remote_folder(folder, remote_label):
-                preserved_folders.append(folder)
+            normalized = _normalized_folder(value)
+            if normalized is not None:
+                preserved.append(normalized)
 
     prepared = prepare_generated_remote_desktop(spec)
     generated = _read_workspace(prepared.workspace_file)
     generated_folders = generated.get("folders")
-    remote_folders = (
+    remote_folders = _deduplicated_folders(
         [dict(value) for value in generated_folders if isinstance(value, dict)]
         if isinstance(generated_folders, list)
         else []
@@ -107,7 +144,7 @@ def prepare_remote_desktop(spec: RemoteConnectSpec) -> PreparedRemoteDesktop:
     for key, value in generated.items():
         if key not in {"folders", "settings"}:
             merged[key] = value
-    merged["folders"] = [*remote_folders, *preserved_folders]
+    merged["folders"] = _deduplicated_folders([*remote_folders, *preserved])
     merged["settings"] = _merge_settings(
         existing.get("settings"),
         generated.get("settings"),
