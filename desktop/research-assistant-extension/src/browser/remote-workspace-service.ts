@@ -128,9 +128,19 @@ export class ResearchAssistantWorkspaceService extends WorkspaceService {
     }
 
     protected transformFolderToAbsolutePath(path: string, workspaceFile: FileStat): string | undefined {
-        if (this.isExternalWorkspaceUri(path)) {
-            return new URI(path).normalizePath().toString();
+        const resource = new URI(path);
+
+        // Absolute URI values are already fully qualified. In particular, a local
+        // folder outside the cached workspace directory is serialized as
+        // `file:///...`; resolving that string as a relative path produces a bogus
+        // `.../file:/...` location and an apparently empty Navigator root.
+        if (resource.scheme) {
+            return resource.normalizePath().toString();
         }
+        if (this.isAbsoluteFileSystemPath(path)) {
+            return URI.fromFilePath(path).normalizePath().toString();
+        }
+
         const absolute = workspaceFile.resource
             .withScheme('file')
             .parent
@@ -142,7 +152,17 @@ export class ResearchAssistantWorkspaceService extends WorkspaceService {
         if (this.isExternalWorkspaceUri(path)) {
             return new URI(path).normalizePath().toString();
         }
-        const folderUri = new URI(path).withScheme('file').normalizePath();
+
+        const resource = new URI(path);
+        const folderUri = resource.scheme === 'file'
+            ? resource.normalizePath()
+            : this.isAbsoluteFileSystemPath(path)
+                ? URI.fromFilePath(path).normalizePath()
+                : workspaceFile.resource.withScheme('file').parent.resolveToAbsolute(path)?.normalizePath();
+        if (!folderUri) {
+            return path;
+        }
+
         const workspaceParent = workspaceFile.resource.withScheme('file').parent;
         return workspaceParent.relative(folderUri)?.toString() ?? folderUri.toString();
     }
@@ -156,5 +176,9 @@ export class ResearchAssistantWorkspaceService extends WorkspaceService {
             return false;
         }
         return new URI(path).scheme !== 'file';
+    }
+
+    protected isAbsoluteFileSystemPath(path: string): boolean {
+        return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path);
     }
 }
