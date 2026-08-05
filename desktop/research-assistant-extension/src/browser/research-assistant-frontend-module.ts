@@ -20,18 +20,21 @@ import {
     ResearchAssistantMediaPreviewOpenHandler,
     ResearchAssistantMediaPreviewWidget,
 } from './media-preview';
+import { ResearchAssistantPathCompletionContribution } from './path-completion';
 import { ResearchAssistantContribution } from './research-assistant-contribution';
 import { ResearchAssistantWidget, ResearchAssistantWidgetId } from './research-assistant-widget';
 import {
     ResearchAssistantRemoteFileServiceContribution,
     ResearchAssistantRemoteFileSystemProvider,
 } from './remote-file-system-provider';
+import { ResearchAssistantRemoteTerminalContribution } from './remote-terminal-contribution';
 import { ResearchAssistantWorkspaceService } from './remote-workspace-service';
 
 import './style/execution.css';
 import './style/research-assistant.css';
 import './style/sci-fi-theme.css';
 import './style/media-preview.css';
+import './style/path-completion.css';
 
 export default new ContainerModule((bind, _, __, rebind) => {
     bind(ResearchAssistantService).toDynamicValue(context =>
@@ -47,6 +50,11 @@ export default new ContainerModule((bind, _, __, rebind) => {
 
     bind(ResearchAssistantWorkspaceService).toSelf().inSingletonScope();
     rebind(WorkspaceService).toService(ResearchAssistantWorkspaceService);
+
+    bind(ResearchAssistantRemoteTerminalContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(ResearchAssistantRemoteTerminalContribution);
+    bind(ResearchAssistantPathCompletionContribution).toSelf().inSingletonScope();
+    bind(FrontendApplicationContribution).toService(ResearchAssistantPathCompletionContribution);
 
     bind(ResearchAssistantMediaPreviewWidget).toSelf();
     bind(ResearchAssistantMediaPreviewOpenHandler).toSelf().inSingletonScope();
