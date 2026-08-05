@@ -20,8 +20,9 @@ def checkout(tmp_path: Path) -> Path:
 
 
 class FakeRunner:
-    def __init__(self, *, dirty: bool = False) -> None:
+    def __init__(self, *, dirty: bool = False, tracked_lock: bool = False) -> None:
         self.dirty = dirty
+        self.tracked_lock = tracked_lock
         self.calls: list[tuple[str, ...]] = []
 
     def __call__(self, argv, **_kwargs):
@@ -34,6 +35,15 @@ class FakeRunner:
             stdout = "origin\n"
         elif command[:3] == ("git", "status", "--porcelain"):
             stdout = " M README.md\n" if self.dirty else ""
+        elif command == (
+            "git",
+            "ls-files",
+            "--stage",
+            "--",
+            "desktop/package-lock.json",
+        ):
+            if self.tracked_lock:
+                stdout = "100644 deadbeef 0\tdesktop/package-lock.json\n"
         return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
 
 
@@ -66,7 +76,7 @@ def test_local_update_reinstalls_and_rebuilds_desktop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     root = checkout(tmp_path)
-    runner = FakeRunner()
+    runner = FakeRunner(tracked_lock=True)
     python = tmp_path / "python"
     python.write_text("")
     npm = tmp_path / "npm"
@@ -81,6 +91,24 @@ def test_local_update_reinstalls_and_rebuilds_desktop(
     assert (str(npm), "ci", "--prefix", "desktop") in runner.calls
     assert (str(npm), "run", "build", "--prefix", "desktop") in runner.calls
     assert (str(npm), "run", "package", "--prefix", "desktop") in runner.calls
+
+
+def test_local_update_ignores_untracked_generated_lockfile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = checkout(tmp_path)
+    runner = FakeRunner(tracked_lock=False)
+    python = tmp_path / "python"
+    python.write_text("")
+    npm = tmp_path / "npm"
+    npm.write_text("")
+    monkeypatch.setattr("research_assistant.updater.shutil.which", lambda name: str(npm))
+
+    update_local(root, python=python, package=False, runner=runner)
+
+    assert (str(npm), "install", "--prefix", "desktop") in runner.calls
+    assert (str(npm), "ci", "--prefix", "desktop") not in runner.calls
 
 
 def test_local_update_can_skip_packaging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -113,6 +141,19 @@ def test_dry_run_validates_but_does_not_execute_update_commands(tmp_path: Path) 
     assert result.dry_run is True
     assert ("git", "fetch", "--prune", "origin") not in runner.calls
     assert ("git", "merge", "--ff-only", "origin/main") not in runner.calls
+
+
+def test_theia_generated_files_are_ignored() -> None:
+    root = Path(__file__).resolve().parents[1]
+    patterns = set((root / ".gitignore").read_text(encoding="utf-8").splitlines())
+
+    assert {
+        "desktop/package-lock.json",
+        "desktop/**/esbuild.mjs",
+        "desktop/**/gen-esbuild.*.mjs",
+        "desktop/**/src-gen/",
+        "desktop/**/*.tsbuildinfo",
+    } <= patterns
 
 
 def test_update_commands_are_registered_in_root_cli() -> None:
