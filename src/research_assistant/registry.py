@@ -69,7 +69,7 @@ class Registry:
             validator=validator,
         )
 
-    def replace_with(self, other: "Registry") -> None:
+    def replace_with(self, other: Registry) -> None:
         """Atomically replace the live catalog after a complete registry validates."""
         if not isinstance(other, Registry):
             raise TypeError("other must be a Registry")
