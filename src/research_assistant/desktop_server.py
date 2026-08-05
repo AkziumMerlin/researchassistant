@@ -39,12 +39,21 @@ def create_desktop_app(
             "desktop API dependencies are missing; install research-assistant[desktop]"
         ) from exc
 
+    workspace_root = Path(root).expanduser().resolve()
+    os.environ["RA_PROJECT_ROOT"] = str(workspace_root)
+
     from research_assistant.ui.server import create_app
 
-    app = create_app(root, plugins or [], ssh_mode=connection_mode == "ssh")
+    app = create_app(
+        workspace_root,
+        plugins or [],
+        ssh_mode=connection_mode == "ssh",
+    )
     from research_assistant.desktop_files import register_desktop_file_routes
+    from research_assistant.ui.legacy_routes import register_legacy_routes
 
     register_desktop_file_routes(app)
+    register_legacy_routes(app)
     _remove_legacy_frontend_routes(app)
     app.title = "ResearchAssistant Desktop API"
 
@@ -60,7 +69,7 @@ def create_desktop_app(
         return {
             "ok": True,
             "version": __version__,
-            "workspace": str(Path(root).expanduser().resolve()),
+            "workspace": str(workspace_root),
             "frontend": "theia-electron",
             "headless": True,
             "connection_mode": connection_mode,
