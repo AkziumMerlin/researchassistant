@@ -53,7 +53,7 @@ export default new ContainerModule((bind, _, __, rebind) => {
     bind(OpenHandler).toService(ResearchAssistantMediaPreviewOpenHandler);
     bind(WidgetFactory).toDynamicValue(context => ({
         id: ResearchAssistantMediaPreviewId,
-        createWidget: async options => {
+        createWidget: async (options: object) => {
             if (!NavigatableWidgetOptions.is(options)) {
                 throw new Error('invalid ResearchAssistant media preview options');
             }
