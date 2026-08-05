@@ -152,6 +152,17 @@ def _yaml_mapping(path: Path) -> dict[str, Any]:
     return value
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(content, encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
+
+
 def is_legacy_config(document: Mapping[str, Any]) -> bool:
     if "version" in document or "stages" in document:
         return False
@@ -273,6 +284,7 @@ class ProjectRegistrationCatalog:
             working_directory=workdir.relative_to(self.root).as_posix(),
             description=description,
         )
+        content = legacy_wrapper_config(self.root, item, old)
         document = self.load()
         if any(row.name == item.name for row in document.legacy_configs) and not replace:
             raise RegistryError(f"legacy config {item.name!r} is already registered")
@@ -281,10 +293,20 @@ class ProjectRegistrationCatalog:
         ]
         document.legacy_configs.append(item)
         document.legacy_configs.sort(key=lambda row: row.name)
-        self.save(document)
-        content = legacy_wrapper_config(self.root, item, old)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_text(content, encoding="utf-8")
+
+        previous = destination.read_text(encoding="utf-8") if destination.is_file() else None
+        try:
+            _atomic_write_text(destination, content)
+            self.save(document)
+        except Exception:
+            try:
+                if previous is None:
+                    destination.unlink(missing_ok=True)
+                else:
+                    _atomic_write_text(destination, previous)
+            except OSError:
+                pass
+            raise
         return item, content
 
     def remove_python(self, kind: str, name: str) -> bool:
