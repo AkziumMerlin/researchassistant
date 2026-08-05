@@ -85,7 +85,7 @@ export class ResearchAssistantMediaPreviewWidget extends BaseWidget implements N
 
     protected zoom = 1;
     protected rotation = 0;
-    protected fit = true;
+    protected fitToView = true;
     protected checkerboard = true;
 
     @postConstruct()
@@ -110,7 +110,7 @@ export class ResearchAssistantMediaPreviewWidget extends BaseWidget implements N
             this.button('zoom-in', 'Zoom in', () => this.zoomBy(1.25)),
         );
         this.fitButton = this.button('screen-full', 'Fit image to view', () => {
-            this.fit = !this.fit;
+            this.fitToView = !this.fitToView;
             this.applyImageTransform();
         });
         this.imageControls.append(
@@ -235,7 +235,7 @@ export class ResearchAssistantMediaPreviewWidget extends BaseWidget implements N
         this.stage.classList.toggle('ra-media-preview-checkerboard', this.checkerboard);
         this.zoom = 1;
         this.rotation = 0;
-        this.fit = true;
+        this.fitToView = true;
 
         const image = document.createElement('img');
         image.className = 'ra-media-preview-image';
@@ -263,7 +263,7 @@ export class ResearchAssistantMediaPreviewWidget extends BaseWidget implements N
         if (!this.currentImage) {
             return;
         }
-        this.fit = false;
+        this.fitToView = false;
         this.zoom = Math.min(16, Math.max(0.05, this.zoom * multiplier));
         this.applyImageTransform();
     }
@@ -281,8 +281,8 @@ export class ResearchAssistantMediaPreviewWidget extends BaseWidget implements N
         if (!image) {
             return;
         }
-        this.fitButton.classList.toggle('active', this.fit);
-        if (this.fit) {
+        this.fitButton.classList.toggle('active', this.fitToView);
+        if (this.fitToView) {
             image.style.width = 'auto';
             image.style.height = 'auto';
             image.style.maxWidth = '100%';
