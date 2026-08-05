@@ -130,15 +130,18 @@ export class ResearchAssistantWorkspaceService extends WorkspaceService {
     protected transformFolderToAbsolutePath(path: string, workspaceFile: FileStat): string | undefined {
         const resource = new URI(path);
 
+        // Raw absolute filesystem paths must be recognized before URI schemes:
+        // on Windows, `C:\\project` is otherwise parsed as a URI with scheme `c`.
+        if (this.isAbsoluteFileSystemPath(path)) {
+            return URI.fromFilePath(path).normalizePath().toString();
+        }
+
         // Absolute URI values are already fully qualified. In particular, a local
         // folder outside the cached workspace directory is serialized as
         // `file:///...`; resolving that string as a relative path produces a bogus
         // `.../file:/...` location and an apparently empty Navigator root.
         if (resource.scheme) {
             return resource.normalizePath().toString();
-        }
-        if (this.isAbsoluteFileSystemPath(path)) {
-            return URI.fromFilePath(path).normalizePath().toString();
         }
 
         const absolute = workspaceFile.resource
