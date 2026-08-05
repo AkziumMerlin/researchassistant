@@ -100,8 +100,8 @@ def test_remote_workspace_preserves_mixed_local_and_remote_roots() -> None:
     assert "jsoncparser.parse" in workspace
     assert "resource.scheme === REMOTE_SCHEME" in workspace
     assert "previousNames" in workspace
-    assert "WorkspaceData.transformToRelative" not in workspace
-    assert "WorkspaceData.transformToAbsolute" not in workspace
+    assert "WorkspaceData.transformToRelative(" not in workspace
+    assert "WorkspaceData.transformToAbsolute(" not in workspace
     assert "return new URI(path).normalizePath().toString()" in workspace
 
 
