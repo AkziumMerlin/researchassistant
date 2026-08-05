@@ -138,6 +138,15 @@ def _git_state(
     return branch
 
 
+def _git_tracks_path(repository: Path, relative_path: str, *, runner: Runner) -> bool:
+    tracked = _run_text(
+        ("git", "ls-files", "--stage", "--", relative_path),
+        cwd=repository,
+        runner=runner,
+    )
+    return bool(tracked)
+
+
 def _execute_plan(
     commands: Sequence[UpdateCommand],
     *,
@@ -217,7 +226,13 @@ def update_local(
             root,
         )
     )
-    install_command = "ci" if (root / "desktop" / "package-lock.json").is_file() else "install"
+    lockfile = root / "desktop" / "package-lock.json"
+    use_ci = lockfile.is_file() and _git_tracks_path(
+        root,
+        "desktop/package-lock.json",
+        runner=runner,
+    )
+    install_command = "ci" if use_ci else "install"
     commands.append(UpdateCommand((npm, install_command, "--prefix", "desktop"), root))
     commands.append(UpdateCommand((npm, "run", "build", "--prefix", "desktop"), root))
     if package:
