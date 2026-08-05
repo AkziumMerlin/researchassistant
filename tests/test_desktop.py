@@ -67,6 +67,26 @@ def test_resolve_desktop_command_prefers_explicit_executable(tmp_path: Path) -> 
     assert command.development is False
 
 
+def test_resolve_desktop_command_finds_electron_builder_linux_output(tmp_path: Path) -> None:
+    executable = (
+        tmp_path
+        / "desktop"
+        / "application"
+        / "dist"
+        / "linux-unpacked"
+        / "research-assistant"
+    )
+    executable.parent.mkdir(parents=True)
+    executable.write_text("", encoding="utf-8")
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    command = resolve_desktop_command(workspace, environ={}, package_root=tmp_path)
+
+    assert command.argv == (str(executable), str(workspace.resolve()))
+    assert command.development is False
+
+
 def test_desktop_api_exposes_bounded_binary_workspace_files(tmp_path: Path) -> None:
     (tmp_path / "data.bin").write_bytes(b"\x00\x01remote")
     app = create_desktop_app(tmp_path, token="secret", connection_mode="ssh")

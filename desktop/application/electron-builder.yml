@@ -1,0 +1,26 @@
+appId: io.researchassistant.desktop
+productName: ResearchAssistant
+executableName: research-assistant
+electronDist: ../node_modules/electron/dist
+electronVersion: 39.8.7
+asar: true
+asarUnpack:
+  - "**/lib/backend/native/**"
+  - "**/lib/backend/shell-integrations/**"
+  - "**/lib/prebuilds/**"
+nodeGypRebuild: false
+npmRebuild: false
+
+directories:
+  output: dist
+
+# The Theia production build bundles the backend and frontend into lib/src-gen.
+# Electron itself is copied from the workspace installation by electron-builder.
+files:
+  - lib
+  - src-gen
+  - package.json
+  - "!**/node_modules/**"
+
+linux:
+  category: Development

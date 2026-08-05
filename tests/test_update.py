@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -71,7 +72,7 @@ def test_server_update_only_fast_forwards_git(tmp_path: Path) -> None:
     assert not any("pip" in command or "npm" in command for command in runner.calls)
 
 
-def test_local_update_reinstalls_and_rebuilds_desktop(
+def test_local_update_reinstalls_rebuilds_and_packages_desktop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -90,7 +91,8 @@ def test_local_update_reinstalls_and_rebuilds_desktop(
     assert (str(python), "-m", "pip", "install", "-e", f"{root}[desktop,reports]") in runner.calls
     assert (str(npm), "ci", "--prefix", "desktop") in runner.calls
     assert (str(npm), "run", "build", "--prefix", "desktop") in runner.calls
-    assert (str(npm), "run", "package", "--prefix", "desktop") in runner.calls
+    assert (str(npm), "run", "package:dir", "--prefix", "desktop") in runner.calls
+    assert not any("theia electron package" in " ".join(command) for command in runner.calls)
 
 
 def test_local_update_ignores_untracked_generated_lockfile(
@@ -122,7 +124,26 @@ def test_local_update_can_skip_packaging(tmp_path: Path, monkeypatch: pytest.Mon
 
     update_local(root, python=python, package=False, runner=runner)
 
-    assert not any(command[1:3] == ("run", "package") for command in runner.calls)
+    assert not any(command[1:3] == ("run", "package:dir") for command in runner.calls)
+
+
+def test_desktop_package_scripts_use_electron_builder() -> None:
+    root = Path(__file__).resolve().parents[1]
+    workspace = json.loads((root / "desktop" / "package.json").read_text(encoding="utf-8"))
+    application = json.loads(
+        (root / "desktop" / "application" / "package.json").read_text(encoding="utf-8")
+    )
+    config = (root / "desktop" / "application" / "electron-builder.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "package:dir" in workspace["scripts"]
+    assert workspace["scripts"]["package"] == "npm run build && npm run package:dir"
+    assert application["scripts"]["package:dir"] == "electron-builder --dir --publish never"
+    assert "theia electron package" not in json.dumps(application)
+    assert application["devDependencies"]["electron-builder"] == "26.0.12"
+    assert "electronDist: ../node_modules/electron/dist" in config
+    assert "executableName: research-assistant" in config
 
 
 def test_update_rejects_dirty_worktree(tmp_path: Path) -> None:

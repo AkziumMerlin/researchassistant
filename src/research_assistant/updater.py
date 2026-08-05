@@ -236,7 +236,9 @@ def update_local(
     commands.append(UpdateCommand((npm, install_command, "--prefix", "desktop"), root))
     commands.append(UpdateCommand((npm, "run", "build", "--prefix", "desktop"), root))
     if package:
-        commands.append(UpdateCommand((npm, "run", "package", "--prefix", "desktop"), root))
+        # The build already ran above. Package only the generated Electron directory instead
+        # of invoking the removed `theia electron package` command or rebuilding twice.
+        commands.append(UpdateCommand((npm, "run", "package:dir", "--prefix", "desktop"), root))
     _execute_plan(commands, dry_run=dry_run, runner=runner)
     return UpdateResult(
         mode="local",
