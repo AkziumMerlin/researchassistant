@@ -21,10 +21,16 @@ class DesktopCommand:
 
 def _candidate_executables(package_root: Path) -> list[Path]:
     names = ["ResearchAssistant", "research-assistant", "researchassistant"]
+    application = package_root / "desktop" / "application"
     candidates: list[Path] = []
     for base in (
-        package_root / "desktop" / "application" / "electron-app",
-        package_root / "desktop" / "application" / "dist",
+        application / "electron-app",
+        application / "dist",
+        application / "dist" / "linux-unpacked",
+        application / "dist" / "win-unpacked",
+        application / "dist" / "mac" / "ResearchAssistant.app" / "Contents" / "MacOS",
+        application / "dist" / "mac-arm64" / "ResearchAssistant.app" / "Contents" / "MacOS",
+        application / "dist" / "mac-x64" / "ResearchAssistant.app" / "Contents" / "MacOS",
         package_root / "desktop" / "dist",
     ):
         candidates.extend(base / name for name in names)
