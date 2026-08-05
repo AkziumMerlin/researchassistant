@@ -33,14 +33,19 @@ def test_remote_workspace_declares_ssh_terminal_profile(
     assert prepared.terminal_wrapper.stat().st_mode & 0o100
 
 
-def test_remote_terminal_profile_is_registered_before_layout() -> None:
+def test_remote_terminal_profile_does_not_block_frontend_startup() -> None:
     source = (BROWSER / "remote-terminal-contribution.ts").read_text(encoding="utf-8")
     frontend = (BROWSER / "research-assistant-frontend-module.ts").read_text(encoding="utf-8")
     application = json.loads(
         (DESKTOP / "application" / "package.json").read_text(encoding="utf-8")
     )
 
-    assert "await this.preferences.ready" in source
+    assert "onStart(): void" in source
+    assert "void this.registerAfterFrontendReady()" in source
+    assert "reachedState('ready')" in source
+    assert "async onStart" not in source
+    assert "await this.preferences.ready" not in source
+    assert "FileService" not in source
     assert "UserTerminalProfileStore" in source
     assert "new ShellTerminalProfile" in source
     assert "setDefaultProfile(REMOTE_PROFILE)" in source
