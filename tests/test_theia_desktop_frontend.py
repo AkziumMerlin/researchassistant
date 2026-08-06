@@ -61,6 +61,17 @@ def test_frontend_is_registered_as_normal_theia_extension() -> None:
     assert "/api/extensions/" not in source
 
 
+def test_research_view_uses_main_editor_area_and_migrates_saved_layout() -> None:
+    source = (EXTENSION / "research-assistant-contribution.ts").read_text(encoding="utf-8")
+
+    assert "defaultWidgetOptions: { area: 'main'" in source
+    assert "defaultWidgetOptions: { area: 'left'" not in source
+    assert "async onDidInitializeLayout(): Promise<void>" in source
+    assert "widget?.isAttached" in source
+    assert "this.shell.getAreaFor(widget) !== 'main'" in source
+    assert "this.shell.addWidget(widget, { area: 'main' })" in source
+
+
 def test_remote_workspace_uses_native_theia_filesystem_provider() -> None:
     provider = (EXTENSION / "remote-file-system-provider.ts").read_text(encoding="utf-8")
     workspace = (EXTENSION / "remote-workspace-service.ts").read_text(encoding="utf-8")
