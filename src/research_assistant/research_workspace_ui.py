@@ -17,6 +17,7 @@ from research_assistant.migrations import migrate_document, migration_catalog
 from research_assistant.notebook_context import NotebookContextStore
 from research_assistant.run_workspace import RunWorkspace
 from research_assistant.scientific_artifacts import ScientificArtifactCatalog
+from research_assistant.ui.legacy_routes import register_legacy_routes
 
 
 class ResearchWorkspaceModel(BaseModel):
@@ -60,6 +61,7 @@ def register_research_workspace(app) -> None:
     except ImportError as exc:  # pragma: no cover
         raise ResearchAssistantError("UI dependencies are not installed") from exc
 
+    register_legacy_routes(app)
     workspace = app.state.workspace.root
     context_store = NotebookContextStore(workspace)
     assistant = AssistantEngine(str(workspace), registry=app.state.registry)
