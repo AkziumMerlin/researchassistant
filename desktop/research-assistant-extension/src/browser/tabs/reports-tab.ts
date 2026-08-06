@@ -7,6 +7,7 @@ import {
     sectionTabs,
     select,
 } from './tooling-common';
+import { renderTensorBoardPanel } from './tensorboard-panel';
 import { renderChart, renderEvaluation, renderTable } from './visualization';
 
 const DEFAULT_CHART = {
@@ -94,6 +95,7 @@ export async function renderReports(view: ResearchAssistantWidget): Promise<void
     const table = jsonEditor(DEFAULT_TABLE, 19);
     const evaluation = jsonEditor(DEFAULT_EVALUATION, 22);
     const advanced = jsonEditor(DEFAULT_ADVANCED, 22);
+    const tensorboardPanel = renderTensorBoardPanel(view);
 
     const loadCatalog = async (rebuild = false): Promise<void> => {
         catalog.textContent = view.pretty(await view.post('/api/analytics/catalog', {
@@ -296,6 +298,7 @@ export async function renderReports(view: ResearchAssistantWidget): Promise<void
 
     view.content.replaceChildren(sectionTabs(view, [
         { id: 'index', label: 'Metric index', node: indexPanel },
+        { id: 'tensorboard', label: 'TensorBoard', node: tensorboardPanel },
         { id: 'charts', label: 'Charts', node: chartPanel },
         { id: 'advanced', label: 'Advanced plots', node: advancedPanel },
         { id: 'tables', label: 'Tables', node: tablePanel },

@@ -30,6 +30,7 @@ from research_assistant.statistics_suite import (
     analyze_statistics,
     write_statistical_report,
 )
+from research_assistant.tensorboard_ui import register_tensorboard_routes
 
 
 class ResearchModel(BaseModel):
@@ -272,3 +273,4 @@ def register_research_routes(app) -> None:
         )
         return {"path": path.relative_to(workspace.root).as_posix()}
 
+    register_tensorboard_routes(app)
