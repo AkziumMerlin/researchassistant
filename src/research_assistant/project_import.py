@@ -4,7 +4,7 @@ import ast
 import hashlib
 import os
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -160,12 +160,12 @@ def _is_excluded(relative: Path) -> bool:
         return True
     if any(part.startswith(".") for part in parts):
         return True
-    return any(left == "configs" and right == "registered" for left, right in zip(parts, parts[1:]))
+    pairs = zip(parts, parts[1:], strict=False)
+    return any(left == "configs" and right == "registered" for left, right in pairs)
 
 
 def _project_files(root: Path) -> tuple[list[Path], bool]:
     result: list[Path] = []
-    truncated = False
     for current, directories, filenames in os.walk(root, followlinks=False):
         current_path = Path(current)
         relative_directory = current_path.relative_to(root)
@@ -185,9 +185,8 @@ def _project_files(root: Path) -> tuple[list[Path], bool]:
                 continue
             result.append(path)
             if len(result) >= _MAX_FILES:
-                truncated = True
-                return result, truncated
-    return result, truncated
+                return result, True
+    return result, False
 
 
 def _dotted_name(node: ast.expr) -> str:
@@ -219,10 +218,11 @@ def _classify_symbol(
     stem = relative.stem.lower().replace("_", "").replace("-", "")
     normalized = lower.replace("_", "").replace("-", "")
     tokens = _path_tokens(relative.parent)
-    bases = {
-        _dotted_name(base).split(".")[-1].lower()
-        for base in node.bases
-    } if isinstance(node, ast.ClassDef) else set()
+    bases = (
+        {_dotted_name(base).split(".")[-1].lower() for base in node.bases}
+        if isinstance(node, ast.ClassDef)
+        else set()
+    )
     is_class = isinstance(node, ast.ClassDef)
 
     if (
@@ -243,34 +243,36 @@ def _classify_symbol(
         return "dataset", "high" if high else "medium", "dataset naming or source path"
 
     if "loss" in tokens or lower.endswith("loss"):
-        return "loss", "high" if lower.endswith("loss") else "medium", "loss naming or source path"
+        confidence = "high" if lower.endswith("loss") else "medium"
+        return "loss", confidence, "loss naming or source path"
     if "optimizer" in tokens or "optimizers" in tokens or lower.endswith("optimizer"):
-        return (
-            "optimizer",
-            "high" if lower.endswith("optimizer") else "medium",
-            "optimizer naming or source path",
-        )
+        confidence = "high" if lower.endswith("optimizer") else "medium"
+        return "optimizer", confidence, "optimizer naming or source path"
     if "scheduler" in tokens or "schedulers" in tokens or lower.endswith("scheduler"):
-        return (
-            "scheduler",
-            "high" if lower.endswith("scheduler") else "medium",
-            "scheduler naming or source path",
-        )
+        confidence = "high" if lower.endswith("scheduler") else "medium"
+        return "scheduler", confidence, "scheduler naming or source path"
     if "transform" in tokens or "transforms" in tokens or lower.endswith("transform"):
-        return (
-            "transform",
-            "high" if lower.endswith("transform") else "medium",
-            "transform naming or source path",
-        )
+        confidence = "high" if lower.endswith("transform") else "medium"
+        return "transform", confidence, "transform naming or source path"
 
-    model_tokens = {"architecture", "architectures", "model", "models", "network", "networks", "operator", "operators"}
+    model_tokens = {
+        "architecture",
+        "architectures",
+        "model",
+        "models",
+        "network",
+        "networks",
+        "operator",
+        "operators",
+    }
     model_name = any(
         marker in lower
         for marker in ("deeponet", "fno", "kno", "operator", "unet", "cno", "rno")
     )
-    model_base = any(base in {"module", "basemodel"} for base in bases)
-    if tokens.intersection(model_tokens) or model_name or model_base:
-        high = is_class and (normalized == stem or model_name or model_base)
+    module_base = "module" in bases
+    scoped_base_model = "basemodel" in bases and bool(tokens.intersection(model_tokens))
+    if tokens.intersection(model_tokens) or model_name or module_base or scoped_base_model:
+        high = is_class and (normalized == stem or model_name)
         if not is_class:
             high = any(word in lower for word in ("build_model", "create_model", "make_model"))
         return "model", "high" if high else "medium", "model naming, base class, or source path"
@@ -281,11 +283,29 @@ def _classify_symbol(
         return "stage", "high" if high else "medium", "stage naming or source path"
 
     if relative.name in {"registry.py", "registries.py", "components.py"}:
-        for kind in ("model", "dataset", "loss", "optimizer", "scheduler", "transform"):
+        kinds = ("model", "dataset", "loss", "optimizer", "scheduler", "transform")
+        for kind in kinds:
             if kind in lower:
-                high = any(word in lower for word in ("build", "create", "get", "load", "make"))
-                return kind, "high" if high else "medium", "factory exposed by a registry module"
+                factories = ("build", "create", "get", "load", "make")
+                high = any(word in lower for word in factories)
+                reason = "factory exposed by a registry module"
+                return kind, "high" if high else "medium", reason
     return None
+
+
+def _unique_component_name(
+    kind: str,
+    symbol: str,
+    relative: Path,
+    used_names: set[tuple[str, str]],
+) -> str:
+    name = f"local/{_slug(symbol)}"
+    if (kind, name) in used_names:
+        name = f"local/{_slug(symbol)}-{_slug(relative.stem)}"
+    if (kind, name) in used_names:
+        suffix = hashlib.sha256(relative.as_posix().encode()).hexdigest()[:6]
+        name = f"local/{_slug(symbol)}-{suffix}"
+    return name
 
 
 def _python_candidates(
@@ -307,7 +327,8 @@ def _python_candidates(
         try:
             tree = ast.parse(source.read_text(encoding="utf-8"), filename=str(source))
         except (OSError, UnicodeError, SyntaxError) as exc:
-            if any(part in {"models", "datasets", "experiments"} for part in relative.parts):
+            watched = {"models", "datasets", "experiments"}
+            if watched.intersection(relative.parts):
                 warnings.append(f"could not inspect {relative.as_posix()}: {exc}")
             continue
         for node in tree.body:
@@ -320,12 +341,11 @@ def _python_candidates(
                 continue
             kind, confidence, reason = classified
             exact = exact_existing.get((kind, relative.as_posix(), node.name))
-            name = exact.name if exact is not None else f"local/{_slug(node.name)}"
-            if exact is None and (kind, name) in used_names:
-                name = f"local/{_slug(node.name)}-{_slug(relative.stem)}"
-            if exact is None and (kind, name) in used_names:
-                suffix = hashlib.sha256(relative.as_posix().encode()).hexdigest()[:6]
-                name = f"local/{_slug(node.name)}-{suffix}"
+            name = (
+                exact.name
+                if exact is not None
+                else _unique_component_name(kind, node.name, relative, used_names)
+            )
             used_names.add((kind, name))
             description = (ast.get_docstring(node) or "").strip()
             already_registered = exact is not None
@@ -356,6 +376,20 @@ def _wrapper_path(relative: Path) -> Path:
     return IMPORT_MANIFEST_PATH.parent / "registered-configs" / relative
 
 
+def _unique_experiment_name(
+    initial: str,
+    relative: Path,
+    used_names: set[str],
+) -> str:
+    name = initial
+    if name in used_names:
+        name = f"{name}-{_slug(relative.parent.name or relative.stem)}"
+    if name in used_names:
+        suffix = hashlib.sha256(relative.as_posix().encode()).hexdigest()[:6]
+        name = f"{name}-{suffix}"
+    return name
+
+
 def _legacy_candidates(
     root: Path,
     files: list[Path],
@@ -379,16 +413,18 @@ def _legacy_candidates(
         if not isinstance(document, dict) or not is_legacy_config(document):
             continue
         exact = exact_existing.get(relative.as_posix())
-        name = exact.name if exact is not None else _safe_experiment_name(document, source.stem)
-        if exact is None and name in used_names:
-            name = f"{name}-{_slug(relative.parent.name or relative.stem)}"
-        if exact is None and name in used_names:
-            suffix = hashlib.sha256(relative.as_posix().encode()).hexdigest()[:6]
-            name = f"{name}-{suffix}"
+        initial_name = _safe_experiment_name(document, source.stem)
+        name = (
+            exact.name
+            if exact is not None
+            else _unique_experiment_name(initial_name, relative, used_names)
+        )
         used_names.add(name)
         output = exact.output if exact is not None else _wrapper_path(relative).as_posix()
-        runner = exact.entrypoint if exact is not None else (
-            _relative(root, entrypoint) if entrypoint is not None else None
+        runner = (
+            exact.entrypoint
+            if exact is not None
+            else (_relative(root, entrypoint) if entrypoint is not None else None)
         )
         already_registered = exact is not None
         candidates.append(
@@ -416,8 +452,7 @@ def scan_project(
     include_configs: bool = True,
 ) -> ProjectImportPlan:
     root = _root(project_root)
-    catalog = ProjectRegistrationCatalog(root)
-    existing = catalog.load()
+    existing = ProjectRegistrationCatalog(root).load()
     files, truncated = _project_files(root)
     warnings: list[str] = []
     if truncated:
@@ -428,9 +463,8 @@ def scan_project(
         candidates.extend(_python_candidates(root, files, existing, warnings))
     if include_configs:
         candidates.extend(_legacy_candidates(root, files, existing, entrypoint, warnings))
-        if entrypoint is None and any(
-            candidate.category == "legacy-config" for candidate in candidates
-        ):
+        has_legacy = any(row.category == "legacy-config" for row in candidates)
+        if entrypoint is None and has_legacy:
             warnings.append(
                 "legacy YAML files were found, but no train_from_yaml.py runner was detected"
             )
@@ -479,7 +513,7 @@ def _write_manifest(root: Path, result: ProjectImportResult) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "version": 1,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(UTC).isoformat(),
         "project": ".",
         "entrypoint": result.plan.entrypoint,
         "summary": result.summary(),
@@ -495,6 +529,89 @@ def _write_manifest(root: Path, result: ProjectImportResult) -> None:
     except OSError as exc:
         temporary.unlink(missing_ok=True)
         raise ResearchAssistantError(f"cannot write project import manifest {path}: {exc}") from exc
+
+
+def _selected_candidates(
+    plan: ProjectImportPlan,
+    candidate_ids: list[str] | None,
+    import_all: bool,
+) -> list[ProjectImportCandidate]:
+    by_id = {candidate.id: candidate for candidate in plan.candidates}
+    if candidate_ids is not None:
+        unknown = sorted(set(candidate_ids).difference(by_id))
+        if unknown:
+            raise ResearchAssistantError(
+                "unknown project import candidate(s): " + ", ".join(unknown)
+            )
+        return [by_id[candidate_id] for candidate_id in candidate_ids]
+    if import_all:
+        return [candidate for candidate in plan.candidates if not candidate.already_registered]
+    return [candidate for candidate in plan.candidates if candidate.selected]
+
+
+def _import_python_candidate(
+    root: Path,
+    catalog: ProjectRegistrationCatalog,
+    candidate: ProjectImportCandidate,
+    *,
+    replace: bool,
+    validate_python: bool,
+) -> ProjectImportStatus:
+    if not candidate.symbol or not candidate.kind:
+        return _status(candidate, "failed", "incomplete Python candidate")
+    existed = catalog.path.is_file()
+    previous = catalog.load()
+    try:
+        catalog.add_python(
+            kind=candidate.kind,
+            name=candidate.name,
+            path=candidate.path,
+            symbol=candidate.symbol,
+            description=candidate.description,
+            replace=replace,
+        )
+        if validate_python:
+            load_registry([], project_root=root)
+    except Exception as exc:
+        _restore_catalog(catalog, previous, existed)
+        return _status(candidate, "failed", str(exc))
+    return _status(candidate, "imported")
+
+
+def _import_config_candidate(
+    root: Path,
+    catalog: ProjectRegistrationCatalog,
+    candidate: ProjectImportCandidate,
+    *,
+    replace: bool,
+) -> ProjectImportStatus:
+    if not candidate.entrypoint or not candidate.output:
+        return _status(candidate, "failed", "legacy runner or wrapper path is missing")
+    destination = root / candidate.output
+    exact = next(
+        (
+            row
+            for row in catalog.load().legacy_configs
+            if row.path == candidate.path and row.name == candidate.name
+        ),
+        None,
+    )
+    if exact is not None and not replace:
+        return _status(candidate, "skipped", "already registered")
+    if destination.exists() and exact is None and not replace:
+        return _status(candidate, "failed", f"wrapper already exists: {candidate.output}")
+    try:
+        catalog.add_legacy_config(
+            path=candidate.path,
+            entrypoint=candidate.entrypoint,
+            output=candidate.output,
+            name=candidate.name,
+            description=candidate.description,
+            replace=replace,
+        )
+    except Exception as exc:
+        return _status(candidate, "failed", str(exc))
+    return _status(candidate, "imported")
 
 
 def import_project(
@@ -513,82 +630,31 @@ def import_project(
         include_python=include_python,
         include_configs=include_configs,
     )
-    by_id = {candidate.id: candidate for candidate in plan.candidates}
-    if candidate_ids is not None:
-        unknown = sorted(set(candidate_ids).difference(by_id))
-        if unknown:
-            raise ResearchAssistantError(
-                "unknown project import candidate(s): " + ", ".join(unknown)
-            )
-        selected = [by_id[candidate_id] for candidate_id in candidate_ids]
-    elif import_all:
-        selected = [candidate for candidate in plan.candidates if not candidate.already_registered]
-    else:
-        selected = [candidate for candidate in plan.candidates if candidate.selected]
-
+    selected = _selected_candidates(plan, candidate_ids, import_all)
     catalog = ProjectRegistrationCatalog(root)
     items: list[ProjectImportStatus] = []
     for candidate in selected:
         if candidate.already_registered and not replace:
             items.append(_status(candidate, "skipped", "already registered"))
-            continue
-        if candidate.category == "python":
-            if not candidate.symbol or not candidate.kind:
-                items.append(_status(candidate, "failed", "incomplete Python candidate"))
-                continue
-            existed = catalog.path.is_file()
-            previous = catalog.load()
-            try:
-                catalog.add_python(
-                    kind=candidate.kind,
-                    name=candidate.name,
-                    path=candidate.path,
-                    symbol=candidate.symbol,
-                    description=candidate.description,
+        elif candidate.category == "python":
+            items.append(
+                _import_python_candidate(
+                    root,
+                    catalog,
+                    candidate,
+                    replace=replace,
+                    validate_python=validate_python,
+                )
+            )
+        else:
+            items.append(
+                _import_config_candidate(
+                    root,
+                    catalog,
+                    candidate,
                     replace=replace,
                 )
-                if validate_python:
-                    load_registry([], project_root=root)
-            except Exception as exc:
-                _restore_catalog(catalog, previous, existed)
-                items.append(_status(candidate, "failed", str(exc)))
-            else:
-                items.append(_status(candidate, "imported"))
-            continue
-
-        if not candidate.entrypoint or not candidate.output:
-            items.append(_status(candidate, "failed", "legacy runner or wrapper path is missing"))
-            continue
-        destination = root / candidate.output
-        exact = next(
-            (
-                row
-                for row in catalog.load().legacy_configs
-                if row.path == candidate.path and row.name == candidate.name
-            ),
-            None,
-        )
-        if exact is not None and not replace:
-            items.append(_status(candidate, "skipped", "already registered"))
-            continue
-        if destination.exists() and exact is None and not replace:
-            items.append(
-                _status(candidate, "failed", f"wrapper already exists: {candidate.output}")
             )
-            continue
-        try:
-            catalog.add_legacy_config(
-                path=candidate.path,
-                entrypoint=candidate.entrypoint,
-                output=candidate.output,
-                name=candidate.name,
-                description=candidate.description,
-                replace=replace,
-            )
-        except Exception as exc:
-            items.append(_status(candidate, "failed", str(exc)))
-        else:
-            items.append(_status(candidate, "imported"))
 
     result = ProjectImportResult(
         manifest_path=IMPORT_MANIFEST_PATH.as_posix(),
