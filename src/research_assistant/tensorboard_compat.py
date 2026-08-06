@@ -306,7 +306,11 @@ class TensorBoardStore:
         runs: list[TensorBoardRun] = []
         unsupported: dict[str, int] = {}
         run_truncated = len(grouped) > MAX_RUNS
-        for directory in sorted(grouped, key=lambda path: path.relative_to(root).as_posix())[:MAX_RUNS]:
+        directories = sorted(
+            grouped,
+            key=lambda path: path.relative_to(root).as_posix(),
+        )[:MAX_RUNS]
+        for directory in directories:
             try:
                 run = _load_run(root, directory, grouped[directory])
             except Exception as exc:  # TensorBoard exposes several parser-specific exceptions.
