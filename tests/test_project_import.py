@@ -18,10 +18,11 @@ def _write_project(root: Path, *, broken_model: bool = False) -> None:
     (root / "configs").mkdir()
 
     model_import = "import definitely_missing_project_dependency\n" if broken_model else ""
+    sentinel = root / "python-imported.txt"
     (root / "models" / "kno.py").write_text(
         model_import
         + "from pathlib import Path\n"
-        + "Path('python-imported.txt').write_text('executed')\n\n"
+        + f"Path({str(sentinel)!r}).write_text('executed')\n\n"
         + "class KNO:\n"
         + "    \"\"\"Test neural operator.\"\"\"\n"
         + "    def __init__(self, width: int = 64):\n"
