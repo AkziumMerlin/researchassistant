@@ -39,6 +39,52 @@ interface LegacyConfigResult {
     command: string;
 }
 
+interface ProjectImportCandidate {
+    id: string;
+    category: 'python' | 'legacy-config';
+    path: string;
+    selected: boolean;
+    confidence: 'high' | 'medium' | 'low';
+    reason: string;
+    symbol?: string;
+    kind?: string;
+    name: string;
+    output?: string;
+    already_registered: boolean;
+}
+
+interface ProjectImportPlan {
+    project_root: string;
+    entrypoint?: string;
+    candidates: ProjectImportCandidate[];
+    warnings: string[];
+    summary: {
+        python: number;
+        legacy_configs: number;
+        recommended: number;
+        already_registered: number;
+        warnings: number;
+    };
+}
+
+interface ProjectImportResult {
+    manifest_path: string;
+    items: Array<{
+        id: string;
+        category: string;
+        path: string;
+        name: string;
+        state: 'imported' | 'skipped' | 'failed';
+        message: string;
+        output?: string;
+    }>;
+    summary: {
+        imported: number;
+        skipped: number;
+        failed: number;
+    };
+}
+
 function replaceOptions(selectNode: HTMLSelectElement, symbols: PythonSymbol[]): void {
     selectNode.replaceChildren();
     for (const symbol of symbols) {
@@ -49,6 +95,19 @@ function replaceOptions(selectNode: HTMLSelectElement, symbols: PythonSymbol[]):
     }
 }
 
+function toggle(label: string, checked = true): HTMLLabelElement {
+    const node = document.createElement('label');
+    node.className = 'ra-field';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.checked = checked;
+    const text = document.createElement('span');
+    text.className = 'ra-field-label';
+    text.textContent = label;
+    node.append(text, input);
+    return node;
+}
+
 export async function renderLegacy(view: ResearchAssistantWidget): Promise<void> {
     const catalogOutput = view.output('Loading project registrations…');
     const refreshCatalog = async (): Promise<void> => {
@@ -56,6 +115,129 @@ export async function renderLegacy(view: ResearchAssistantWidget): Promise<void>
         catalogOutput.textContent = view.pretty(result);
         catalogOutput.classList.remove('error');
     };
+
+    const includePythonField = toggle('Discover Python components');
+    const includeConfigsField = toggle('Discover legacy YAML configs');
+    const includePython = includePythonField.querySelector('input') as HTMLInputElement;
+    const includeConfigs = includeConfigsField.querySelector('input') as HTMLInputElement;
+    const importCandidates = view.element('div', 'ra-stack');
+    const importOutput = view.output(
+        'Scan inspects Python through AST only. Project source is not imported or executed.',
+    );
+    let importPlan: ProjectImportPlan | undefined;
+
+    const checkedCandidateIds = (): string[] => Array.from(
+        importCandidates.querySelectorAll<HTMLInputElement>('input[data-candidate-id]:checked'),
+    ).filter(input => !input.disabled).map(input => input.dataset.candidateId || '').filter(Boolean);
+
+    const renderImportPlan = (plan: ProjectImportPlan): void => {
+        importCandidates.replaceChildren();
+        if (!plan.candidates.length) {
+            importCandidates.append(view.element('p', 'ra-help', 'No import candidates found.'));
+            return;
+        }
+        for (const candidate of plan.candidates) {
+            const row = view.element('label', 'ra-field');
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.dataset.candidateId = candidate.id;
+            input.checked = candidate.selected && !candidate.already_registered;
+            input.disabled = candidate.already_registered;
+            const title = candidate.category === 'python'
+                ? `${candidate.kind}/${candidate.name} ← ${candidate.path}#${candidate.symbol}`
+                : `${candidate.name} ← ${candidate.path}`;
+            const state = candidate.already_registered
+                ? 'already registered'
+                : `${candidate.confidence} confidence · ${candidate.reason}`;
+            const text = view.element('span', 'ra-field-label', `${title} · ${state}`);
+            row.append(input, text);
+            importCandidates.append(row);
+        }
+    };
+
+    const scanProject = async (): Promise<ProjectImportPlan> => {
+        const result = await view.post<ProjectImportPlan>('/api/project/import/scan', {
+            include_python: includePython.checked,
+            include_configs: includeConfigs.checked,
+        });
+        importPlan = result;
+        renderImportPlan(result);
+        return result;
+    };
+
+    const scanImport = view.button('Scan project', () => runAction(
+        view,
+        importOutput,
+        async () => {
+            const result = await scanProject();
+            return {
+                root: result.project_root,
+                runner: result.entrypoint || null,
+                summary: result.summary,
+                warnings: result.warnings,
+            };
+        },
+    ), 'primary');
+
+    const selectRecommended = view.button('Select recommended', () => {
+        if (!importPlan) throw new Error('Scan the project first.');
+        for (const input of Array.from(
+            importCandidates.querySelectorAll<HTMLInputElement>('input[data-candidate-id]'),
+        )) {
+            const candidate = importPlan.candidates.find(row => row.id === input.dataset.candidateId);
+            input.checked = Boolean(candidate?.selected) && !input.disabled;
+        }
+    });
+
+    const selectAll = view.button('Select all', () => {
+        if (!importPlan) throw new Error('Scan the project first.');
+        for (const input of Array.from(
+            importCandidates.querySelectorAll<HTMLInputElement>('input[data-candidate-id]'),
+        )) {
+            input.checked = !input.disabled;
+        }
+    });
+
+    const importChecked = view.button('Import checked', () => runAction(
+        view,
+        importOutput,
+        async () => {
+            if (!importPlan) throw new Error('Scan the project first.');
+            const candidateIds = checkedCandidateIds();
+            if (!candidateIds.length) throw new Error('Select at least one new candidate.');
+            return view.post<ProjectImportResult>('/api/project/import/apply', {
+                candidate_ids: candidateIds,
+                import_all: false,
+                replace: false,
+                include_python: includePython.checked,
+                include_configs: includeConfigs.checked,
+            });
+        },
+        async () => {
+            await refreshCatalog();
+            importPlan = await scanProject();
+        },
+    ), 'primary');
+
+    const projectImport = view.card(
+        'Import an existing project',
+        view.element(
+            'p',
+            'ra-help',
+            'Detect conventional model and dataset factories, find old experiment YAMLs, preview '
+            + 'the plan, and register the checked items as one idempotent operation.',
+        ),
+        includePythonField,
+        includeConfigsField,
+        view.element('div', 'ra-actions', undefined, [
+            scanImport,
+            selectRecommended,
+            selectAll,
+            importChecked,
+        ]),
+        importCandidates,
+        importOutput,
+    );
 
     const pythonPath = view.input('Python path', 'models/kno.py');
     const symbol = select(view, [], '');
@@ -214,6 +396,7 @@ export async function renderLegacy(view: ResearchAssistantWidget): Promise<void>
     );
 
     view.content.replaceChildren(sectionTabs(view, [
+        { id: 'import', label: 'Import project', node: projectImport },
         { id: 'python', label: 'Python files', node: pythonRegistration },
         { id: 'config', label: 'Legacy configs', node: legacyConfig },
         { id: 'catalog', label: 'Catalog', node: catalog },
