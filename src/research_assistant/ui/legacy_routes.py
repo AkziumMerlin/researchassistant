@@ -13,6 +13,7 @@ from research_assistant.legacy import (
     suggest_legacy_entrypoint,
 )
 from research_assistant.plugins import load_registry
+from research_assistant.project_import import import_project, scan_project
 
 
 class LegacyUiModel(BaseModel):
@@ -38,6 +39,17 @@ class LegacyConfigRegistrationRequest(LegacyUiModel):
     arguments: list[str] = Field(default_factory=list)
     working_directory: str = "."
     description: str = ""
+    replace: bool = False
+
+
+class ProjectImportScanRequest(LegacyUiModel):
+    include_python: bool = True
+    include_configs: bool = True
+
+
+class ProjectImportApplyRequest(ProjectImportScanRequest):
+    candidate_ids: list[str] | None = None
+    import_all: bool = False
     replace: bool = False
 
 
@@ -141,4 +153,35 @@ def register_legacy_routes(app) -> None:
             "registration": registration.model_dump(mode="json"),
             "content": content,
             "command": f"ra run {registration.output}",
+        }
+
+    @app.post("/api/project/import/scan")
+    def project_import_scan(payload: ProjectImportScanRequest) -> dict[str, Any]:
+        plan = scan_project(
+            root,
+            include_python=payload.include_python,
+            include_configs=payload.include_configs,
+        )
+        return {
+            **plan.model_dump(mode="json"),
+            "summary": plan.summary(),
+        }
+
+    @app.post("/api/project/import/apply")
+    def project_import_apply(payload: ProjectImportApplyRequest) -> dict[str, Any]:
+        result = import_project(
+            root,
+            candidate_ids=payload.candidate_ids,
+            import_all=payload.import_all,
+            replace=payload.replace,
+            validate_python=True,
+            include_python=payload.include_python,
+            include_configs=payload.include_configs,
+        )
+        validated = load_registry(list(app.state.plugins), project_root=root)
+        app.state.registry.replace_with(validated)
+        return {
+            **result.model_dump(mode="json"),
+            "summary": result.summary(),
+            "restart_required": False,
         }
