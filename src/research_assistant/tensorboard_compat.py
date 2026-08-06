@@ -318,9 +318,13 @@ class TensorBoardStore:
                     relative = directory.relative_to(root).as_posix()
                     errors.append(f"{relative}: {type(exc).__name__}: {exc}")
                 continue
-            runs.append(run)
             for kind, count in run.unsupported.items():
                 unsupported[kind] = unsupported.get(kind, 0) + count
+            if not run.tags:
+                if len(errors) < MAX_ERRORS:
+                    errors.append(f"{run.path}: no readable scalar summaries")
+                continue
+            runs.append(run)
 
         snapshot = TensorBoardSnapshot(
             root=root,
