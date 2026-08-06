@@ -24,7 +24,7 @@ implements FrontendApplicationContribution {
         super({
             widgetId: ResearchAssistantWidgetId,
             widgetName: 'ResearchAssistant',
-            defaultWidgetOptions: { area: 'left', rank: 500 },
+            defaultWidgetOptions: { area: 'main', rank: 500 },
             toggleCommandId: ResearchAssistantCommands.OPEN_ID,
             toggleKeybinding: 'ctrlcmd+shift+r',
         });
@@ -42,5 +42,15 @@ implements FrontendApplicationContribution {
 
     async initializeLayout(): Promise<void> {
         await this.openView({ activate: false });
+    }
+
+    async onDidInitializeLayout(): Promise<void> {
+        const widget = this.tryGetWidget();
+        if (
+            widget?.isAttached
+            && this.shell.getAreaFor(widget) !== 'main'
+        ) {
+            await this.shell.addWidget(widget, { area: 'main' });
+        }
     }
 }
